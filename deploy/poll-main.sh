@@ -10,7 +10,10 @@ flock -n 9 || exit 0
 exec >>"$STATE/deploy.log" 2>&1
 printf '\n[%s] Check main\n' "$(date -u +%FT%TZ)"
 if [[ -f /home/akogsfas/nodevenv/ebn-host/24/bin/activate ]]; then
+  # CloudLinux's activation script reads optional unset variables.
+  set +u
   source /home/akogsfas/nodevenv/ebn-host/24/bin/activate
+  set -u
 fi
 node -e 'if (Number(process.versions.node.split(".")[0]) !== 24) process.exit(1)'
 [[ "$(git -C "$ROOT" remote get-url origin)" == "$EXPECTED_REMOTE" ]] || { echo 'Unexpected repository remote'; exit 1; }
