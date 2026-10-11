@@ -16,6 +16,21 @@ if [[ -f /home/akogsfas/nodevenv/ebn-host/24/bin/activate ]]; then
   set -u
 fi
 node -e 'if (Number(process.versions.node.split(".")[0]) !== 24) process.exit(1)'
+node - "$ROOT" <<'NODE'
+const fs = require('fs');
+const root = process.argv[2];
+for (const pid of fs.readdirSync('/proc').filter(p => /^\d+$/.test(p))) {
+  if (Number(pid) === process.pid) continue;
+  try {
+    const cwd = fs.realpathSync(`/proc/${pid}/cwd`);
+    if (cwd !== root && !cwd.startsWith(root + '/.deploy/releases/')) continue;
+    const comm = fs.readFileSync(`/proc/${pid}/comm`, 'utf8').trim();
+    if (!/node/.test(comm)) continue;
+    const command = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').replace(/\0/g, ' ');
+    console.log('Scoped app worker:', JSON.stringify({pid:Number(pid),comm,cwd,command}));
+  } catch { /* Exited or inaccessible process. */ }
+}
+NODE
 [[ "$(git -C "$ROOT" remote get-url origin)" == "$EXPECTED_REMOTE" ]] || { echo 'Unexpected repository remote'; exit 1; }
 git -C "$ROOT" fetch --no-tags origin main
 COMMIT="$(git -C "$ROOT" rev-parse FETCH_HEAD)"
