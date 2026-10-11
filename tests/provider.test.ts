@@ -1,0 +1,137 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  categoriesFromHtml,
+  titlesFromHtml,
+  searchFromJson,
+  sourceFromHtml,
+  imageUrl,
+  detailFromHtml,
+  dedupe,
+} from "../lib/provider/normalize";
+import { allowedUrl, publicAddress, cached } from "../lib/provider/http";
+import { applyFilters, resolvePlayback } from "../lib/provider";
+import snapshot from "../data/catalogue.json";
+import { TitleSchema } from "../lib/model";
+test("normalizes actual native search response and preserves editions", () => {
+  const items = searchFromJson({
+    results: [
+      {
+        id: 40571,
+        title: "Inception",
+        category: "Dual Audio",
+        poster: "ljsZTbVsrQSqZgWeep2B1QiDKuh.jpg",
+        year: "2010",
+        resolution: "1080p",
+        type: "movie",
+      },
+      {
+        id: 34097,
+        title: "Inception",
+        category: "4K Movies",
+        poster: null,
+        year: "2010",
+        type: "movie",
+      },
+    ],
+  });
+  assert.equal(items[0].id, "movie-40571");
+  assert.equal(items[0].year, 2010);
+  assert.match(items[0].poster!, /^https:\/\/image.tmdb.org/);
+  assert.equal(dedupe([...items, items[0]]).length, 2);
+});
+test("rejects malformed external JSON", () =>
+  assert.throws(() =>
+    searchFromJson({
+      results: [{ id: "../bad", title: "unsafe", type: "movie" }],
+    }),
+  ));
+test("discovers category paths including nested names, deduplicates menus", () => {
+  const h =
+    '<a href="/category.php?category=Hindi+Dubbed%2FEnglish+Movies">English Movies</a><a href="/category.php?category=Hindi+Dubbed%2FEnglish+Movies">duplicate</a><a href="/tcategory.php?category=English+Series">Series</a><a href="https://evil.test/category.php?category=Bad">Bad</a>';
+  assert.equal(categoriesFromHtml(h).length, 2);
+  assert.equal(categoriesFromHtml(h)[0].name, "Hindi Dubbed/English Movies");
+});
+test("parses actual card structure with year, quality, category and HTML entities", () => {
+  const h =
+    '<a href="view.php?id=78830"><img src="/uploads/poster.jpg" alt="Echoes &amp; Tomorrow"><span class="catLabel">English</span><span>1080P</span><span>2026</span></a>';
+  const [t] = titlesFromHtml(h);
+  assert.equal(t.title, "Echoes & Tomorrow");
+  assert.equal(t.language, "English");
+  assert.equal(t.quality, "1080P");
+  assert.equal(t.year, 2026);
+});
+test("seasons and episodes stay distinct", () => {
+  const d = detailFromHtml(
+    '<h1>Earth Abides <span>(2024)</span></h1><video poster="https://image.tmdb.org/t/p/w500/a.jpg"></video><span class="meta-cat">English Series</span><select name="season"><option value="1">Season 1</option><option value="2">Season 2</option></select><a class="ep-card" data-ep="2"><img src="https://image.tmdb.org/t/p/w500/e.jpg"><span class="truncate">Earth Abides-S1E2-1080P</span></a>',
+    "series-31416",
+  );
+  assert.deepEqual(d.title.seasons, [1, 2]);
+  assert.equal(d.episodes[0].number, 2);
+  assert.equal(d.episodes[0].quality, "1080P");
+});
+test("does not invent playable sources", () => {
+  assert.equal(sourceFromHtml("<video></video>"), null);
+  assert.equal(
+    sourceFromHtml('<video><source src="/movie.mpd"></video>'),
+    null,
+  );
+  assert.equal(
+    sourceFromHtml('<video><source src="/hls/sample/master.m3u8"></video>')
+      ?.format,
+    "hls",
+  );
+});
+test("rejects unsafe destinations, ports, credentials and private addresses", () => {
+  for (const url of [
+    "http://127.0.0.1/",
+    "http://cineplexbd.net.evil.test/",
+    "http://cineplexbd.net:8080/",
+    "http://u:p@cineplexbd.net/",
+    "file:///etc/passwd",
+  ])
+    assert.throws(() => allowedUrl(url, true));
+  for (const ip of [
+    "127.0.0.1",
+    "10.0.0.1",
+    "169.254.169.254",
+    "192.168.1.1",
+    "::1",
+    "::ffff:127.0.0.1",
+    "fd00::1",
+  ])
+    assert.equal(publicAddress(ip), false);
+  assert.equal(publicAddress("1.1.1.1"), true);
+  assert.equal(imageUrl("javascript:alert(1)"), null);
+});
+test("request cache coalesces simultaneous requests", async () => {
+  let count = 0;
+  const load = async () => {
+    count++;
+    return "done";
+  };
+  const results = await Promise.all([
+    cached("test", 1000, load),
+    cached("test", 1000, load),
+  ]);
+  assert.deepEqual(results, ["done", "done"]);
+  assert.equal(count, 1);
+});
+test("year filtering uses real normalized records", () => {
+  const titles = TitleSchema.array().parse(snapshot.items);
+  const result = applyFilters(titles, { year: 2026, kind: "movie" });
+  assert.ok(result.length > 0);
+  assert.ok(result.every((t) => t.year === 2026 && t.kind === "movie"));
+});
+test("playback gate never exposes a source without authorization", async () => {
+  const previous = process.env.CINEPLEX_PLAYBACK_AUTHORIZED;
+  process.env.CINEPLEX_PLAYBACK_AUTHORIZED = "false";
+  try {
+    const p = await resolvePlayback("movie-40571");
+    assert.equal(p.status, "authorization_required");
+    assert.equal(p.url, undefined);
+  } finally {
+    if (previous === undefined) delete process.env.CINEPLEX_PLAYBACK_AUTHORIZED;
+    else process.env.CINEPLEX_PLAYBACK_AUTHORIZED = previous;
+  }
+});

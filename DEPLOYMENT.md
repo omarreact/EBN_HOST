@@ -29,3 +29,8 @@ The cPanel checkout's controller remains pinned to its installed version: fetchi
 The initial `server.cjs` page is a deployment test, not the completed PinFlix application. It exposes only the commit ID and Node version. Its `/_ebn/health` route verifies the active commit. Root health/startup success is a limited test; project-specific CI and playback tests remain necessary.
 
 For dependencies, install/build compatibility with CloudLinux must be tested for the actual project. Large Next.js builds may exceed shared hosting limits. Databases, uploaded media and secrets should be stored separately from immutable source releases.
+
+## PinFlix application deployment
+
+server.cjs now prepares a regular Next.js production build and restores /ebn-host-live when Passenger strips the prefix. next.config.mjs fixes the build-time basePath and trailingSlash, with one build worker. The existing health path is preserved; public health contains only service readiness and deployment identity. The controller and rollback activation contract are unchanged. See README.md and PROVIDER-RESEARCH.md for playback permission gates and verification scope.
+
