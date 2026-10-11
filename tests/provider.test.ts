@@ -5,6 +5,7 @@ import {
   titlesFromHtml,
   searchFromJson,
   sourceFromHtml,
+  seriesMoreFromJson,
   imageUrl,
   detailFromHtml,
   dedupe,
@@ -13,6 +14,7 @@ import { allowedUrl, publicAddress, cached } from "../lib/provider/http";
 import { applyFilters, resolvePlayback } from "../lib/provider";
 import snapshot from "../data/catalogue.json";
 import { TitleSchema } from "../lib/model";
+test('normalizes native series pagination JSON',()=>{const [t]=seriesMoreFromJson([{id:31392,title:'Killer Cakes',year:'2024',poster:'https://image.tmdb.org/t/p/w500/3SDGvKB0eVfAZaoHGwHDMKwA2as.jpg',imdb_rating:'7.0',category:'English Shows'}]);assert.equal(t.id,'series-31392');assert.equal(t.year,2024);assert.equal(t.language,'English');});
 test("normalizes actual native search response and preserves editions", () => {
   const items = searchFromJson({
     results: [

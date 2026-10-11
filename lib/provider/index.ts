@@ -9,6 +9,7 @@ import {
   searchFromJson,
   detailFromHtml,
   sourceFromHtml,
+  seriesMoreFromJson,
   imageUrl,
   dedupe,
   isMature,
@@ -131,9 +132,8 @@ export async function catalogue(q: Query = {}): Promise<Catalogue> {
       items = titlesFromHtml(h, q.kind);
       hasNext = nextPage(h, page);
     } else if (q.kind === "series") {
-      const h = await html("/tvs.php?" + params);
-      items = titlesFromHtml(h, "series");
-      hasNext = nextPage(h, page);
+      if(page===1){const h=await html('/tvs.php');items=titlesFromHtml(h,'series');hasNext=items.length>=24;}
+      else{const response=await cached('series-more:'+page,180_000,()=>boundedTextSafe('/tvs_more.php?'+new URLSearchParams({offset:String((page-1)*24),limit:'24'})));items=seriesMoreFromJson(JSON.parse(response));hasNext=items.length===24;}
     } else {
       const h = await html(
         page === 1 && !q.year ? "/" : "/category.php?" + params,

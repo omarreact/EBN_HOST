@@ -5,6 +5,7 @@ async function main() {
   const c = await catalogue({ kind: "movie" });
   assert.ok(c.categories.length > 20);
   assert.ok(c.items.length > 0);
+  const seriesPage=await catalogue({kind:'series',page:2});assert.ok(seriesPage.items.some(t=>t.id==='series-31392'));assert.equal(seriesPage.stale,false);
   const result = await suggestions("Inception");
   assert.ok(result.some((t) => t.title === "Inception" && t.year === 2010));
   const filtered = await catalogue({ q: "Inception", year: 2010 });
