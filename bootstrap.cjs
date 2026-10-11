@@ -2,7 +2,7 @@
 // Stable Passenger startup file. Releases and manifests live outside the document root.
 const fs = require('node:fs');
 const path = require('node:path');
-const root = __dirname;
+const root = process.env.EBN_DEPLOY_ROOT ? path.resolve(process.env.EBN_DEPLOY_ROOT) : __dirname;
 const activeFile = path.join(root, '.deploy', 'active.json');
 let release = root;
 let manifest;
