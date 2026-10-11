@@ -1,0 +1,4 @@
+{
+  "startup": "server.cjs",
+  "healthPath": "/_ebn/health"
+}
