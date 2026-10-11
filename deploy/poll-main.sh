@@ -58,4 +58,9 @@ if [[ -f "$STATE/active.json" ]]; then cp -p "$STATE/active.json" "$STATE/manife
 # Overwrite only this deployment's pointer; the previous pointer and releases remain.
 cp "$STATE/manifests/$STAMP.json" "$STATE/active.json"
 touch "$ROOT/tmp/restart.txt"
-echo "Activated $COMMIT; Passenger restart requested"
+if command -v cloudlinux-selector >/dev/null 2>&1; then
+  cloudlinux-selector restart --json --interpreter nodejs --app-root ebn-host
+else
+  echo 'CloudLinux restart command unavailable; Passenger restart file used'
+fi
+echo "Activated $COMMIT; application restart requested"
