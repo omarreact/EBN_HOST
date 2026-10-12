@@ -2,7 +2,7 @@
 
 A Next.js App Router application for CineplexBD catalogue discovery, native search, movie details, TV seasons/episodes, saved titles and device-local watching progress.
 
-Root-domain deployment candidate: https://test.pincodeit.com/ (requires separate cPanel Passenger application-URL cutover; not yet verified live).
+Root-domain deployment candidate: http://abc.pincodeit.com/ (requires separate cPanel Passenger application-URL cutover; not yet verified live).
 Source: https://github.com/omarreact/EBN_HOST
 
 ## Run locally
