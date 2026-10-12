@@ -51,8 +51,10 @@ jobs:
           # skip the large compiler cache (not needed by the production server).
           rsync -a --exclude='/cache/' .next/ dist/ebn-runtime/.next/
           # Keep an explicit allowlist: never upload .env, .git or node_modules.
-          cp -a package.json package-lock.json server.cjs next.config.mjs \
-            app components data lib public scripts dist/ebn-runtime/
+          cp -a package.json package-lock.json server.cjs next.config.mjs dist/ebn-runtime/
+          for dir in app components data lib public scripts; do
+            if [ -d "$dir" ]; then cp -a "$dir" dist/ebn-runtime/; fi
+          done
           printf '%s\n' "$GITHUB_SHA" > dist/ebn-runtime/EBN_BUILD_SHA
           test -s dist/ebn-runtime/.next/BUILD_ID
           test -f dist/ebn-runtime/server.cjs
