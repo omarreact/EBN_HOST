@@ -5,9 +5,11 @@ import {
   detail,
   resolvePlayback,
   suggestions,
+  getCineplexCookies,
   type Query,
 } from "@/lib/provider";
-import { ProviderError } from "@/lib/provider/http";
+import { ProviderError, safeFetch, allowedUrl } from "@/lib/provider/http";
+import { BASE } from "@/lib/model";
 export const dynamic = "force-dynamic";
 const Params = z.object({
   kind: z.enum(["movie", "series"]).optional(),
@@ -25,6 +27,7 @@ const Params = z.object({
     .optional(),
   season: z.coerce.number().int().min(1).max(999).default(1),
   episode: z.coerce.number().int().min(1).max(10000).default(1),
+  url: z.string().optional(),
 });
 const limits = new Map<string, { count: number; until: number }>();
 export async function GET(
@@ -60,7 +63,197 @@ export async function GET(
     else if (resource === "detail" && id) result = await detail(id, season);
     else if (resource === "playback" && id)
       result = await resolvePlayback(id, season, episode);
-    else return NextResponse.json({ error: "Not found." }, { status: 404 });
+    else if (resource === "download" && id) {
+      const pb = await resolvePlayback(id, season, episode).catch(() => null);
+      if (!pb || pb.status !== "ready" || !pb.url) {
+        const errorHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Download Unavailable · PinFlix</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0b0d14; color: #f3f4f6; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
+    .card { background: #131722; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 36px 28px; max-width: 440px; width: 100%; text-align: center; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
+    .icon { width: 48px; height: 48px; margin: 0 auto 16px; border-radius: 50%; background: rgba(234, 88, 12, 0.15); display: flex; align-items: center; justify-content: center; color: #f97316; font-size: 24px; }
+    h1 { font-size: 20px; font-weight: 600; margin: 0 0 10px; color: #fff; }
+    p { color: #9ca3af; font-size: 14px; line-height: 1.5; margin: 0 0 24px; }
+    .btn { display: inline-block; background: #ea580c; color: #fff; padding: 12px 28px; border-radius: 10px; text-decoration: none; font-weight: 600; font-size: 14px; transition: background 0.2s; }
+    .btn:hover { background: #f97316; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">!</div>
+    <h1>Download Unavailable</h1>
+    <p>A direct download stream is not available for this title right now. Please return to the title page or try again later.</p>
+    <a href="javascript:history.back()" class="btn">Go Back</a>
+  </div>
+</body>
+</html>`;
+        return new NextResponse(errorHtml, {
+          status: 404,
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        });
+      }
+
+      const d = await detail(id, season).catch(() => null);
+      const titleName = d?.title?.title || "PinFlix_Media";
+      const filename = id.startsWith("series-")
+        ? `${titleName}_S${season}E${episode}`
+        : `${titleName}`;
+      const ext =
+        pb.format === "hls"
+          ? "m3u8"
+          : pb.url?.includes(".mkv")
+            ? "mkv"
+            : "mp4";
+      const safeFilename = encodeURIComponent(
+        `${filename}.${ext}`.replace(/[/\\?%*:|"<> ]/g, "_"),
+      );
+
+      let mediaTarget = pb.url;
+      if (mediaTarget.includes("url=")) {
+        try {
+          const parsedTarget = new URL(
+            mediaTarget,
+            "http://localhost:3005",
+          ).searchParams.get("url");
+          if (parsedTarget) mediaTarget = parsedTarget;
+        } catch {
+          /* Keep original */
+        }
+      }
+
+      if (pb.format === "mp4") {
+        try {
+          const cookies = await getCineplexCookies(id, season, episode);
+          const reqHeaders: Record<string, string> = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            Referer: "http://cineplexbd.net/",
+          };
+          if (cookies) reqHeaders["Cookie"] = cookies;
+          const range = req.headers.get("range") || "bytes=0-";
+          reqHeaders["Range"] = range;
+
+          const upstream = await safeFetch(mediaTarget, { headers: reqHeaders }, true);
+          const headers = new Headers();
+          headers.set(
+            "Content-Disposition",
+            `attachment; filename="${safeFilename}"; filename*=UTF-8''${safeFilename}`,
+          );
+          let dlType = upstream.headers.get("content-type") || "";
+          if (mediaTarget.includes(".mkv") && (!dlType || dlType.includes("octet-stream"))) {
+            dlType = "video/x-matroska";
+          } else if (mediaTarget.includes(".mp4") && (!dlType || dlType.includes("octet-stream"))) {
+            dlType = "video/mp4";
+          }
+          if (dlType) headers.set("Content-Type", dlType);
+          if (upstream.headers.has("content-length"))
+            headers.set("Content-Length", upstream.headers.get("content-length")!);
+          if (upstream.headers.has("accept-ranges"))
+            headers.set("Accept-Ranges", upstream.headers.get("accept-ranges")!);
+          if (upstream.headers.has("content-range"))
+            headers.set("Content-Range", upstream.headers.get("content-range")!);
+          return new NextResponse(upstream.body, {
+            status: upstream.status,
+            headers,
+          });
+        } catch {
+          return NextResponse.redirect(pb.url);
+        }
+      } else if (pb.format === "hls") {
+        try {
+          const cookies = await getCineplexCookies(id, season, episode);
+          const reqHeaders: Record<string, string> = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            Referer: "http://cineplexbd.net/",
+          };
+          if (cookies) reqHeaders["Cookie"] = cookies;
+          const upstream = await safeFetch(mediaTarget, { headers: reqHeaders }, true);
+          const playlistText = await upstream.text();
+          const headers = new Headers();
+          headers.set(
+            "Content-Disposition",
+            `attachment; filename="${safeFilename}"; filename*=UTF-8''${safeFilename}`,
+          );
+          headers.set("Content-Type", "application/vnd.apple.mpegurl");
+          return new NextResponse(playlistText, { status: 200, headers });
+        } catch {
+          return NextResponse.redirect(pb.url);
+        }
+      }
+      return NextResponse.redirect(pb.url);
+    } else if (resource === "stream") {
+      const targetUrl = p.data.url;
+      if (!targetUrl)
+        return NextResponse.json({ error: "Missing url." }, { status: 400 });
+      allowedUrl(targetUrl, true);
+      const cookies = await getCineplexCookies(id, season, episode);
+      const reqHeaders: Record<string, string> = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        Referer: "http://cineplexbd.net/",
+      };
+      if (cookies) reqHeaders["Cookie"] = cookies;
+      const range = req.headers.get("range");
+      if (range) reqHeaders["Range"] = range;
+
+      const upstream = await safeFetch(targetUrl, { headers: reqHeaders }, true);
+      const contentType = upstream.headers.get("content-type") || "";
+      const isM3u8 =
+        targetUrl.includes(".m3u8") ||
+        contentType.includes("mpegurl") ||
+        contentType.includes("application/x-mpegURL");
+
+      if (isM3u8) {
+        const text = await upstream.text();
+        const rewritten = text
+          .split("\n")
+          .map((line) => {
+            const trimmed = line.trim();
+            if (!trimmed) return line;
+            if (trimmed.startsWith("#EXT-X-KEY")) {
+              return trimmed.replace(/URI="([^"]+)"/, (_, uri) => {
+                const abs = new URL(uri, targetUrl).href;
+                return `URI="${BASE}/api/stream/?id=${id || ""}&season=${season || 1}&episode=${episode || 1}&url=${encodeURIComponent(abs)}"`;
+              });
+            }
+            if (trimmed.startsWith("#")) return line;
+            const abs = new URL(trimmed, targetUrl).href;
+            return `${BASE}/api/stream/?id=${id || ""}&season=${season || 1}&episode=${episode || 1}&url=${encodeURIComponent(abs)}`;
+          })
+          .join("\n");
+        return new NextResponse(rewritten, {
+          status: 200,
+          headers: {
+            "Content-Type": "application/vnd.apple.mpegurl",
+            "Cache-Control": "no-cache",
+            "Access-Control-Allow-Origin": "*",
+          },
+        });
+      }
+
+      const resHeaders = new Headers();
+      let streamType = upstream.headers.get("content-type") || "";
+      if (targetUrl.includes(".mkv") && (!streamType || streamType.includes("octet-stream"))) {
+        streamType = "video/x-matroska";
+      } else if (targetUrl.includes(".mp4") && (!streamType || streamType.includes("octet-stream"))) {
+        streamType = "video/mp4";
+      }
+      if (streamType) resHeaders.set("Content-Type", streamType);
+      if (upstream.headers.has("content-length"))
+        resHeaders.set("Content-Length", upstream.headers.get("content-length")!);
+      if (upstream.headers.has("accept-ranges"))
+        resHeaders.set("Accept-Ranges", upstream.headers.get("accept-ranges")!);
+      if (upstream.headers.has("content-range"))
+        resHeaders.set("Content-Range", upstream.headers.get("content-range")!);
+      resHeaders.set("Access-Control-Allow-Origin", "*");
+
+      return new NextResponse(upstream.body, {
+        status: upstream.status,
+        headers: resHeaders,
+      });
+    } else return NextResponse.json({ error: "Not found." }, { status: 404 });
     return NextResponse.json(result, {
       headers: {
         "Cache-Control":

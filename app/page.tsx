@@ -3,18 +3,42 @@ import { ArrowUpRight } from "lucide-react";
 import { catalogue, detail } from "@/lib/provider";
 import { Hero } from "@/components/hero";
 import { Row } from "@/components/cards";
-import { ContinueWatching } from "@/components/library";
+import type { Title } from "@/lib/model";
 export const dynamic = "force-dynamic";
 export default async function Home() {
-  const c = await catalogue();
-  const movies = c.items.filter((t) => t.kind === "movie");
-  const series = c.items.filter((t) => t.kind === "series");
-  const spotlight = await detail("movie-77533")
-    .then((d) => d.title)
-    .catch(() => movies[0]);
-  const featured = [spotlight, ...movies.filter((t) => t.id !== spotlight?.id)]
-    .filter(Boolean)
-    .slice(0, 3);
+  const [c, s] = await Promise.all([
+    catalogue().catch(() => null),
+    catalogue({ kind: "series" }).catch(() => null),
+  ]);
+  const movies = c?.items.filter((t) => t.kind === "movie") || [];
+  const seriesMap = new Map<string, Title>();
+  if (s?.items) {
+    for (const item of s.items) seriesMap.set(item.id, item);
+  }
+  if (c?.items) {
+    for (const item of c.items) {
+      if (item.kind === "series" && !seriesMap.has(item.id)) {
+        seriesMap.set(item.id, item);
+      }
+    }
+  }
+  const series = Array.from(seriesMap.values());
+
+  const featuredCandidates: Title[] = [];
+  const maxPairs = 3;
+  for (let i = 0; i < maxPairs; i++) {
+    if (movies[i]) featuredCandidates.push(movies[i]);
+    if (series[i]) featuredCandidates.push(series[i]);
+  }
+  const topFeatured = featuredCandidates.slice(0, 5);
+  const featured = await Promise.all(
+    topFeatured.map((t) =>
+      detail(t.id)
+        .then((d) => d.title)
+        .catch(() => t),
+    ),
+  );
+  const categories = c?.categories || [];
   return (
     <>
       <Hero titles={featured} />
@@ -22,7 +46,7 @@ export default async function Home() {
         <div className="discovery-bar">
           <span>Find your kind of story</span>
           <div className="chips">
-            {c.categories
+            {categories
               .filter((c) => c.kind === "movie" && !c.mature)
               .slice(0, 8)
               .map((c) => (
@@ -38,7 +62,6 @@ export default async function Home() {
             </Link>
           </div>
         </div>
-        <ContinueWatching />
         <Row
           kicker="FRESH ON THE SHELF"
           title="New stories, new obsessions"
@@ -77,7 +100,7 @@ export default async function Home() {
           items={movies.slice(12, 24)}
           href="/movies"
         />
-        {c.stale && (
+        {c?.stale && (
           <p className="availability-note">
             Showing the last available collection. More titles will return when
             the catalogue reconnects.

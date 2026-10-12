@@ -289,22 +289,31 @@ export function sourceFromHtml(
   subtitles: { url: string; label: string; language: string }[];
 } | null {
   const $ = cheerio.load(html);
+  const scriptMatch = html.match(
+    /(?:const|let|var)?\s*videoSrc\s*=\s*(['"])((?:(?!\1)[^\\]|\\.)*)\1/,
+  );
   const raw =
     $("video source").first().attr("src") ||
-    html.match(/const videoSrc\s*=\s*("(?:[^"\\]|\\.)*")/)?.[1];
+    $("source").first().attr("src") ||
+    $("video").attr("src") ||
+    (scriptMatch ? scriptMatch[2] : null);
   if (!raw) return null;
   let value = raw;
-  if (raw.startsWith('"')) {
+  if (value.startsWith('"')) {
     try {
-      value = JSON.parse(raw);
+      value = JSON.parse(value);
     } catch {
       return null;
     }
   }
-  const url = new URL(value, ORIGIN).href;
+  let baseOrigin = ORIGIN;
+  if (/^\/?Data\//i.test(value)) {
+    baseOrigin = "http://103.136.200.124:8086";
+  }
+  const url = new URL(value, baseOrigin).href;
   const format = /\.m3u8(?:\?|$)/i.test(url)
     ? "hls"
-    : /\.mp4(?:\?|$)/i.test(url)
+    : /\.(mp4|mkv)(?:\?|$)/i.test(url)
       ? "mp4"
       : null;
   if (!format) return null;

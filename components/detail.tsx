@@ -7,6 +7,7 @@ import {
   LoaderCircle,
   Check,
   ChevronRight,
+  Download,
 } from "lucide-react";
 import { api, type Detail, type Playback } from "@/lib/model";
 import { Artwork } from "./artwork";
@@ -147,6 +148,11 @@ export function DetailView({
             title={t}
             season={t.kind === "series" ? season : undefined}
             episode={t.kind === "series" ? episode : undefined}
+            episodeTitle={
+              t.kind === "series"
+                ? data.episodes.find((e) => e.number === episode)?.title
+                : undefined
+            }
             onClose={() => setStarted(false)}
             onRetry={() => void play()}
             onNext={next ? () => void play(next.number) : undefined}
@@ -197,6 +203,20 @@ export function DetailView({
                       ? `Play S${season} · E${episode}`
                       : "Play movie"}
                 </button>
+                <a
+                  className="secondary button-download"
+                  href={api(
+                    `/download?id=${t.id}${t.kind === "series" ? `&season=${season}&episode=${episode}` : ""}`,
+                  )}
+                  download
+                  title={
+                    t.kind === "series"
+                      ? `Download S${season} E${episode}`
+                      : "Download movie"
+                  }
+                >
+                  <Download size={18} /> Download
+                </a>
                 <SaveButton title={t} />
               </div>
               {note && (
@@ -266,39 +286,61 @@ export function DetailView({
             </div>
             <div className="episodes">
               {data.episodes.map((e) => (
-                <button
+                <div
                   key={e.number}
                   className={
                     "episode " + (episode === e.number ? "active" : "")
                   }
-                  disabled={busy || source?.status === "authorization_required"}
-                  onClick={() => {
-                    setEpisode(e.number);
-                    void play(e.number);
-                    document
-                      .querySelector(".detail-hero")
-                      ?.scrollIntoView({ behavior: "smooth", block: "center" });
-                  }}
                 >
-                  <div className="episode-art">
-                    <Artwork src={e.thumbnail || t.poster} alt={e.title} />
-                    <span>
-                      <Play fill="currentColor" size={20} />
-                    </span>
-                  </div>
-                  <div className="episode-copy">
-                    <small>
-                      EPISODE {String(e.number).padStart(2, "0")}
-                      {e.quality ? " · " + e.quality : ""}
-                    </small>
-                    <h3>{e.title}</h3>
-                  </div>
-                  {watched.includes(`${season}:${e.number}`) ? (
-                    <Check size={19} aria-label="Watched" />
-                  ) : (
-                    <ChevronRight size={19} />
-                  )}
-                </button>
+                  <button
+                    type="button"
+                    className="episode-btn"
+                    disabled={
+                      busy || source?.status === "authorization_required"
+                    }
+                    onClick={() => {
+                      setEpisode(e.number);
+                      void play(e.number);
+                      document
+                        .querySelector(".detail-hero")
+                        ?.scrollIntoView({
+                          behavior: "smooth",
+                          block: "center",
+                        });
+                    }}
+                  >
+                    <div className="episode-art">
+                      <Artwork src={e.thumbnail || t.poster} alt={e.title} />
+                      <span>
+                        <Play fill="currentColor" size={20} />
+                      </span>
+                    </div>
+                    <div className="episode-copy">
+                      <small>
+                        EPISODE {String(e.number).padStart(2, "0")}
+                        {e.quality ? " · " + e.quality : ""}
+                      </small>
+                      <h3>{e.title}</h3>
+                    </div>
+                    {watched.includes(`${season}:${e.number}`) ? (
+                      <Check size={19} aria-label="Watched" />
+                    ) : (
+                      <ChevronRight size={19} />
+                    )}
+                  </button>
+                  <a
+                    className="episode-download"
+                    href={api(
+                      `/download?id=${t.id}&season=${season}&episode=${e.number}`,
+                    )}
+                    download
+                    title={`Download S${season} E${e.number}`}
+                    aria-label={`Download S${season} E${e.number}`}
+                    onClick={(ev) => ev.stopPropagation()}
+                  >
+                    <Download size={18} />
+                  </a>
+                </div>
               ))}
             </div>
             {!data.episodes.length && (

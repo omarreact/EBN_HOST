@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Search, X, ArrowUpRight, Menu, Play } from "lucide-react";
+import { Search, X, ArrowUpRight, Menu, Play, ChevronDown } from "lucide-react";
 import { api, type Title } from "@/lib/model";
 import { Artwork } from "./artwork";
 import { read, write } from "@/lib/storage";
@@ -11,6 +11,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [menu, setMenu] = useState(false);
+  const [catOpen, setCatOpen] = useState(false);
   const [q, setQ] = useState("");
   const [items, setItems] = useState<Title[]>([]);
   const [recent, setRecent] = useState<string[]>([]);
@@ -76,21 +77,82 @@ export function Shell({ children }: { children: React.ReactNode }) {
           aria-label="Main navigation"
           className={menu ? "nav-links mobile-open" : "nav-links"}
         >
-          {[
-            ["/", "Discover"],
-            ["/movies", "Movies"],
-            ["/series", "Series"],
-            ["/library", "My space"],
-          ].map(([href, label]) => (
-            <Link
-              key={href}
-              href={href}
-              onClick={() => setMenu(false)}
-              className={pathname === href ? "active" : ""}
+          <Link
+            href="/"
+            onClick={() => { setMenu(false); setCatOpen(false); }}
+            className={pathname === "/" ? "active" : ""}
+          >
+            Discover
+          </Link>
+          <Link
+            href="/movies"
+            onClick={() => { setMenu(false); setCatOpen(false); }}
+            className={pathname === "/movies" ? "active" : ""}
+          >
+            Movies
+          </Link>
+          <Link
+            href="/series"
+            onClick={() => { setMenu(false); setCatOpen(false); }}
+            className={pathname === "/series" ? "active" : ""}
+          >
+            Series
+          </Link>
+          <div className="nav-item-dropdown">
+            <button
+              type="button"
+              className="nav-dropdown-trigger"
+              onClick={() => setCatOpen(!catOpen)}
+              aria-expanded={catOpen}
             >
-              {label}
-            </Link>
-          ))}
+              Categories <ChevronDown size={14} className={catOpen ? "rotate-180" : ""} />
+            </button>
+            <div className={`nav-dropdown-menu ${catOpen ? "open" : ""}`}>
+              <div className="dropdown-col">
+                <span className="dropdown-title">MOVIES</span>
+                <Link href="/movies?category=4K+Movies" onClick={() => { setCatOpen(false); setMenu(false); }}>
+                  4K Movies
+                </Link>
+                <Link href="/movies?category=Dual+Audio" onClick={() => { setCatOpen(false); setMenu(false); }}>
+                  Dual Audio
+                </Link>
+                <Link href="/movies?category=Hindi+Dubbed" onClick={() => { setCatOpen(false); setMenu(false); }}>
+                  Hindi Dubbed
+                </Link>
+                <Link href="/movies?category=English+Movies" onClick={() => { setCatOpen(false); setMenu(false); }}>
+                  English Movies
+                </Link>
+                <Link href="/movies?category=Animation" onClick={() => { setCatOpen(false); setMenu(false); }}>
+                  Animation
+                </Link>
+                <Link href="/movies?category=South+Hindi+Dubbed" onClick={() => { setCatOpen(false); setMenu(false); }}>
+                  South Hindi Dubbed
+                </Link>
+              </div>
+              <div className="dropdown-col">
+                <span className="dropdown-title">SERIES</span>
+                <Link href="/series?category=English+Series" onClick={() => { setCatOpen(false); setMenu(false); }}>
+                  English Series
+                </Link>
+                <Link href="/series?category=Hindi+Dubbed+Series" onClick={() => { setCatOpen(false); setMenu(false); }}>
+                  Hindi Dubbed Series
+                </Link>
+                <Link href="/series?category=Korean+Drama" onClick={() => { setCatOpen(false); setMenu(false); }}>
+                  Korean Drama
+                </Link>
+                <Link href="/series?category=Anime" onClick={() => { setCatOpen(false); setMenu(false); }}>
+                  Anime
+                </Link>
+              </div>
+            </div>
+          </div>
+          <Link
+            href="/library"
+            onClick={() => { setMenu(false); setCatOpen(false); }}
+            className={pathname === "/library" ? "active" : ""}
+          >
+            My space
+          </Link>
         </nav>
         <div className="nav-right">
           <button

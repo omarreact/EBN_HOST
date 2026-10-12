@@ -34,3 +34,20 @@ For dependencies, install/build compatibility with CloudLinux must be tested for
 
 server.cjs now prepares a regular Next.js production build and restores /ebn-host-live when Passenger strips the prefix. next.config.mjs fixes the build-time basePath and trailingSlash, with one build worker. The existing health path is preserved; public health contains only service readiness and deployment identity. The controller and rollback activation contract are unchanged. See README.md and PROVIDER-RESEARCH.md for playback permission gates and verification scope.
 
+## Rollback procedure
+
+To safely roll back to the previously active release without deleting any releases or user data:
+
+```bash
+/bin/bash /home/akogsfas/ebn-host/deploy/rollback.sh
+```
+
+Or roll back to an explicit commit SHA:
+
+```bash
+/bin/bash /home/akogsfas/ebn-host/deploy/rollback.sh <commit-sha>
+```
+
+The script verifies that the target release exists in `.deploy/releases/`, pre-probes its startup and health check on an ephemeral local port, safely swaps `.deploy/active.json`, triggers process restart via `restart.txt` and `cloudlinux-selector`, and records the action in `.deploy/deploy.log`. If health validation fails, the current active release remains unchanged.
+
+

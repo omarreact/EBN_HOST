@@ -13,8 +13,11 @@ import {
   LoaderCircle,
   X,
   SkipForward,
+  Download,
+  PictureInPicture2,
+  Tv,
 } from "lucide-react";
-import type { Playback, Title } from "@/lib/model";
+import { api, type Playback, type Title } from "@/lib/model";
 import { resume, saveProgress } from "@/lib/storage";
 import { formatTime, mediaError, clampSeek } from "@/lib/player";
 export function Player({
@@ -22,6 +25,7 @@ export function Player({
   title,
   season,
   episode,
+  episodeTitle,
   onClose,
   onRetry,
   onNext,
@@ -30,6 +34,7 @@ export function Player({
   title: Title;
   season?: number;
   episode?: number;
+  episodeTitle?: string;
   onClose: () => void;
   onRetry: () => void;
   onNext?: () => void;
@@ -58,6 +63,71 @@ export function Player({
   const [speed, setSpeed] = useState(1);
   const [ended, setEnded] = useState(false);
   const [orientationNote, setOrientationNote] = useState("");
+  const [fit, setFit] = useState<"contain" | "cover" | "fill">("contain");
+  const [touchIndicator, setTouchIndicator] = useState<{
+    text: string;
+    side: "left" | "right";
+  } | null>(null);
+  const lastTap = useRef<{ time: number; x: number }>({ time: 0, x: 0 });
+  const singleTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTouchTime = useRef(0);
+
+  async function togglePiP() {
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else if (video.current) {
+        await video.current.requestPictureInPicture();
+      }
+    } catch {}
+  }
+
+  function cycleFit() {
+    setFit((prev) =>
+      prev === "contain" ? "cover" : prev === "cover" ? "fill" : "contain",
+    );
+  }
+
+  function handleTouchEnd(e: React.TouchEvent<HTMLDivElement>) {
+    if (e.changedTouches.length !== 1) return;
+    const target = e.target as HTMLElement;
+    if (target.closest("button, select, input, a, label")) return;
+
+    lastTouchTime.current = Date.now();
+    const now = Date.now();
+    const touch = e.changedTouches[0];
+    const rect = frame.current?.getBoundingClientRect();
+    if (!rect) return;
+    const x = touch.clientX - rect.left;
+    const isLeft = x < rect.width / 2;
+
+    if (now - lastTap.current.time < 320) {
+      if (singleTapTimer.current) {
+        clearTimeout(singleTapTimer.current);
+        singleTapTimer.current = null;
+      }
+      e.preventDefault();
+      seek(isLeft ? -5 : 5);
+      setTouchIndicator({
+        text: isLeft ? "-5s" : "+5s",
+        side: isLeft ? "left" : "right",
+      });
+      setTimeout(() => setTouchIndicator(null), 600);
+      lastTap.current = { time: 0, x: 0 };
+    } else {
+      lastTap.current = { time: now, x };
+      if (singleTapTimer.current) clearTimeout(singleTapTimer.current);
+      singleTapTimer.current = setTimeout(() => {
+        if (!visible) {
+          reveal();
+        } else {
+          void toggle();
+        }
+        singleTapTimer.current = null;
+      }, 280);
+    }
+  }
+
   function reveal() {
     setVisible(true);
     if (idle.current) clearTimeout(idle.current);
@@ -119,6 +189,26 @@ export function Player({
           index: i,
         })),
       );
+      const nativeAudioTracks = (v as unknown as { audioTracks?: { label?: string; language?: string }[] }).audioTracks;
+      if (nativeAudioTracks && nativeAudioTracks.length > 1) {
+        setAudios(
+          Array.from(nativeAudioTracks).map((t, i) => ({
+            name: t.label || t.language || (i === 0 ? "Hindi (Dubbed)" : i === 1 ? "English (Original)" : `Audio ${i + 1}`),
+            index: i,
+          })),
+        );
+      } else {
+        const isDual =
+          title.category?.toLowerCase().includes("dual") ||
+          title.title?.toLowerCase().includes("dual") ||
+          title.title?.toLowerCase().includes("hindi & english");
+        if (isDual) {
+          setAudios([
+            { name: "Hindi (Dubbed)", index: 0 },
+            { name: "English (Original)", index: 1 },
+          ]);
+        }
+      }
       attempt();
     };
     const progress = () => {
@@ -177,8 +267,15 @@ export function Player({
         h.attachMedia(v);
         h.loadSource(source.url);
         h.on(Hls.Events.MANIFEST_PARSED, () => {
-          setLevels(h.levels.map((l, i) => ({ height: l.height, index: i })));
+          if (h.levels && h.levels.length > 0) {
+            setLevels(h.levels.map((l, i) => ({ height: l.height || 1080, index: i })));
+          }
           attempt();
+        });
+        h.on(Hls.Events.LEVEL_LOADED, () => {
+          if (h.levels && h.levels.length > 0) {
+            setLevels(h.levels.map((l, i) => ({ height: l.height || 1080, index: i })));
+          }
         });
         h.on(Hls.Events.AUDIO_TRACKS_UPDATED, (_, d) =>
           setAudios(
@@ -301,6 +398,17 @@ export function Player({
       onPointerMove={reveal}
       onPointerDown={reveal}
       onFocus={reveal}
+      onTouchEnd={handleTouchEnd}
+      onClick={(e) => {
+        if (Date.now() - lastTouchTime.current < 450) return;
+        const tag = (e.target as HTMLElement).tagName;
+        if (["INPUT", "SELECT", "BUTTON", "A"].includes(tag)) return;
+        if (!visible) {
+          reveal();
+        } else {
+          void toggle();
+        }
+      }}
       onKeyDown={(e) => {
         const tag = (e.target as HTMLElement).tagName;
         if (["INPUT", "SELECT", "BUTTON"].includes(tag)) return;
@@ -330,8 +438,8 @@ export function Player({
         playsInline
         preload="metadata"
         crossOrigin={source.format === "hls" ? "anonymous" : undefined}
-        onClick={() => void toggle()}
         aria-label={title.title}
+        style={{ objectFit: fit }}
       >
         {source.subtitles?.map((t) => (
           <track
@@ -343,10 +451,16 @@ export function Player({
           />
         ))}
       </video>
+      {touchIndicator && (
+        <div className={`touch-indicator ${touchIndicator.side}`}>
+          {touchIndicator.text}
+        </div>
+      )}
       <div className="player-top">
         <span>
           {title.title}
           {episode ? ` · S${season} E${episode}` : ""}
+          {episodeTitle ? ` · ${episodeTitle}` : ""}
         </span>
         <button
           className="icon-button"
@@ -481,35 +595,52 @@ export function Player({
                 </option>
               ))}
             </select>
-            {levels.length > 0 && (
-              <select
-                aria-label="Video quality"
-                value={quality}
-                onChange={(e) => {
-                  const n = Number(e.target.value);
-                  setQuality(n);
-                  if (engine.current) engine.current.currentLevel = n;
-                }}
-              >
-                <option value={-1}>Auto</option>
-                {levels.map((l) => (
+            <select
+              aria-label="Video quality"
+              value={quality}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                setQuality(n);
+                if (engine.current && levels.length > 0) {
+                  engine.current.currentLevel = n;
+                }
+              }}
+            >
+              <option value={-1}>Auto</option>
+              {levels.length > 0 ? (
+                levels.map((l) => (
                   <option value={l.index} key={l.index}>
-                    {l.height ? l.height + "p" : "Quality " + (l.index + 1)}
+                    {l.height ? `${l.height}p` : `Quality ${l.index + 1}`}
                   </option>
-                ))}
-              </select>
-            )}
+                ))
+              ) : (
+                <>
+                  <option value={1080}>1080p</option>
+                  <option value={720}>720p</option>
+                  <option value={480}>480p</option>
+                  <option value={360}>360p</option>
+                </>
+              )}
+            </select>
             {audios.length > 0 && (
               <select
                 aria-label="Audio track"
                 value={audio}
                 onChange={(e) => {
-                  setAudio(Number(e.target.value));
-                  if (engine.current)
-                    engine.current.audioTrack = Number(e.target.value);
+                  const val = Number(e.target.value);
+                  setAudio(val);
+                  if (engine.current) {
+                    engine.current.audioTrack = val;
+                  }
+                  const nativeAudio = (video.current as unknown as { audioTracks?: { enabled: boolean }[] })?.audioTracks;
+                  if (nativeAudio && nativeAudio.length > 0) {
+                    for (let i = 0; i < nativeAudio.length; i++) {
+                      nativeAudio[i].enabled = val === -1 ? i === 0 : i === val;
+                    }
+                  }
                 }}
               >
-                <option value={-1}>Audio</option>
+                <option value={-1}>Audio: {audios[0]?.name || "Default"}</option>
                 {audios.map((a) => (
                   <option key={a.index} value={a.index}>
                     {a.name}
@@ -542,6 +673,33 @@ export function Player({
               </select>
             )}
           </div>
+          <button
+            type="button"
+            aria-label="Picture-in-picture"
+            title="Picture-in-picture"
+            onClick={() => void togglePiP()}
+          >
+            <PictureInPicture2 size={19} />
+          </button>
+          <button
+            type="button"
+            aria-label={`Aspect ratio: ${fit}`}
+            title={`Fit: ${fit}`}
+            onClick={cycleFit}
+          >
+            <Tv size={19} />
+          </button>
+          <a
+            className="icon-button"
+            aria-label="Download video"
+            title="Download video"
+            href={api(
+              `/download?id=${title.id}${season ? `&season=${season}` : ""}${episode ? `&episode=${episode}` : ""}`,
+            )}
+            download
+          >
+            <Download size={19} />
+          </a>
           <button
             aria-label={full ? "Exit fullscreen" : "Enter fullscreen"}
             onClick={() => void fullscreen()}

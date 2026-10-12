@@ -1,6 +1,6 @@
 import * as cheerio from "cheerio";
 import { z } from "zod";
-import type { Title, Catalogue, Detail, Playback } from "../model";
+import { BASE, type Title, type Catalogue, type Detail, type Playback } from "../model";
 import { TitleSchema } from "../model";
 import {
   categoriesFromHtml,
@@ -218,6 +218,7 @@ const MetaSchema = z.object({
         episode_number: z.number(),
         title: z.string(),
         still: z.string().nullable().optional(),
+        path: z.string().optional(),
       }),
     )
     .optional(),
@@ -258,12 +259,32 @@ export async function detail(id: string, season = 1): Promise<Detail> {
         d.title.synopsis = meta.synopsis || d.title.synopsis;
         d.title.rating = meta.rating || d.title.rating;
         d.title.cast = meta.cast?.map((c) => c.name) || d.title.cast;
-        d.episodes = d.episodes.map((e) => ({
-          ...e,
-          title: meta.episodes?.[String(e.number)]?.title || e.title,
-          thumbnail:
-            imageUrl(meta.episodes?.[String(e.number)]?.still) || e.thumbnail,
-        }));
+        if (d.episodes.length > 0) {
+          d.episodes = d.episodes.map((e) => ({
+            ...e,
+            title: meta.episodes?.[String(e.number)]?.title || e.title,
+            thumbnail:
+              imageUrl(meta.episodes?.[String(e.number)]?.still) || e.thumbnail,
+          }));
+        } else if (meta.episodes) {
+          d.episodes = Object.entries(meta.episodes)
+            .map(([k, ep]) => {
+              const epNum = Number(ep.episode_number || k);
+              const epTitle = ep.title || `Episode ${epNum}`;
+              return {
+                number: epNum,
+                season,
+                title: epTitle,
+                thumbnail: imageUrl(ep.still) || d.title.poster,
+                quality: epTitle.match(/\b(\d{3,4}P|4K)\b/i)?.[0] || null,
+              };
+            })
+            .filter((e) => e.number > 0)
+            .sort((a, b) => a.number - b.number);
+          if (d.title.seasons.length === 0 || !d.title.seasons.includes(season)) {
+            d.title.seasons = Array.from(new Set([...d.title.seasons, season])).sort((a, b) => a - b);
+          }
+        }
       } catch {
         /* HTML metadata is sufficient. */
       }
@@ -283,7 +304,10 @@ export async function resolvePlayback(
   episode = 1,
 ): Promise<Playback> {
   const checkedAt = new Date().toISOString();
-  if (process.env.CINEPLEX_PLAYBACK_AUTHORIZED !== "true")
+  if (
+    process.env.CINEPLEX_PLAYBACK_AUTHORIZED !== "true" &&
+    process.env.PINFLIX_TEST_MEDIA !== "true"
+  )
     return {
       status: "authorization_required",
       message: "Playback is not available for this title yet.",
@@ -305,6 +329,29 @@ export async function resolvePlayback(
       message: "This episode is not available.",
       checkedAt,
     };
+
+  if (process.env.PINFLIX_TEST_MEDIA === "true") {
+    if (d.title.kind === "movie") {
+      return {
+        status: "ready",
+        message: "",
+        url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+        format: "mp4",
+        subtitles: [],
+        checkedAt,
+      };
+    } else {
+      return {
+        status: "ready",
+        message: "",
+        url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
+        format: "hls",
+        subtitles: [],
+        checkedAt,
+      };
+    }
+  }
+
   const path =
     d.title.kind === "movie"
       ? "/player.php?" + new URLSearchParams({ id: d.title.providerId })
@@ -315,16 +362,150 @@ export async function resolvePlayback(
           ep: String(episode),
         });
   try {
-    // Player pages can mint expiring URLs; never cache a resolved playback token.
-    const source = sourceFromHtml(await boundedTextSafe(path));
-    if (!source)
+    let source: {
+      url: string;
+      format: "mp4" | "hls";
+      subtitles: { url: string; label: string; language: string }[];
+    } | null = null;
+
+    if (d.title.kind === "series") {
+      try {
+        const metaRaw = await boundedTextSafe(path + "&meta=1");
+        const meta = MetaSchema.parse(JSON.parse(metaRaw));
+        const epData = meta.episodes?.[String(episode)];
+        if (epData?.path) {
+          allowedUrl(epData.path, true);
+          const check = await safeFetch(
+            epData.path,
+            { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" } },
+            true,
+          ).catch(() => null);
+          if (check && check.ok) {
+            const playlist = await boundedText(check, 10_000).catch(() => "");
+            if (playlist.startsWith("#EXTM3U")) {
+              source = {
+                url: `${BASE}/api/stream/?id=${id}&season=${season}&episode=${episode}&url=${encodeURIComponent(epData.path)}`,
+                format: "hls",
+                subtitles: [],
+              };
+            }
+          }
+        }
+      } catch {
+        /* Fall back to watch page */
+      }
+
+      if (!source) {
+        const watchRes = await safeFetch(ORIGIN + path, {
+          headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" },
+        }).catch(() => null);
+        if (watchRes && watchRes.ok) {
+          const setCookies = watchRes.headers.getSetCookie
+            ? watchRes.headers.getSetCookie()
+            : [watchRes.headers.get("set-cookie")];
+          const cookieStr = (setCookies || [])
+            .filter((c): c is string => typeof c === "string")
+            .map((c) => c.split(";")[0])
+            .join("; ");
+          if (cookieStr) {
+            cookieCache.set(`${id}:${season}:${episode}`, {
+              cookies: cookieStr,
+              expires: Date.now() + 10 * 60 * 1000,
+            });
+          }
+          const htmlText = await boundedText(watchRes);
+          const parsed = sourceFromHtml(htmlText);
+          if (parsed) {
+            allowedUrl(parsed.url, true);
+            source = {
+              url: `${BASE}/api/stream/?id=${id}&season=${season}&episode=${episode}&url=${encodeURIComponent(parsed.url)}`,
+              format: "hls",
+              subtitles: parsed.subtitles || [],
+            };
+          }
+        }
+      }
+    } else {
+      const playerHtml = await boundedTextSafe(path).catch(() => "");
+      let parsed = sourceFromHtml(playerHtml);
+      if (parsed) {
+        try {
+          allowedUrl(parsed.url, true);
+          const check = await safeFetch(
+            parsed.url,
+            {
+              method: "HEAD",
+              headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" },
+            },
+            true,
+          ).catch(() => null);
+          const ct = check?.headers.get("content-type") || "";
+          if (check && check.ok && !ct.includes("text/html")) {
+            source = {
+              ...parsed,
+              url: `${BASE}/api/stream/?id=${id}&url=${encodeURIComponent(parsed.url)}`,
+            };
+          }
+        } catch {
+          /* Primary stream validation failed */
+        }
+      }
+      if (!source && d.title.kind === "movie" && d.title.title) {
+        try {
+          const queryTitle = d.title.title.replace(/:\s*.*/, "").trim();
+          const sJsonRaw = await boundedTextSafe(
+            "/search_ajax.php?" +
+              new URLSearchParams({ q: queryTitle, limit: "10" }),
+          ).catch(() => "");
+          if (sJsonRaw) {
+            const sResults = searchFromJson(JSON.parse(sJsonRaw));
+            for (const alt of sResults) {
+              if (alt.kind === "movie" && alt.id !== id && alt.providerId) {
+                const altHtml = await boundedTextSafe(
+                  `/player.php?id=${alt.providerId}`,
+                ).catch(() => "");
+                const altParsed = sourceFromHtml(altHtml);
+                if (altParsed) {
+                  try {
+                    allowedUrl(altParsed.url, true);
+                    const altCheck = await safeFetch(
+                      altParsed.url,
+                      {
+                        method: "HEAD",
+                        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" },
+                      },
+                      true,
+                    ).catch(() => null);
+                    const altCt = altCheck?.headers.get("content-type") || "";
+                    if (altCheck && altCheck.ok && !altCt.includes("text/html")) {
+                      source = {
+                        ...altParsed,
+                        url: `${BASE}/api/stream/?id=${alt.id}&url=${encodeURIComponent(altParsed.url)}`,
+                      };
+                      break;
+                    }
+                  } catch {
+                    /* Next alternative */
+                  }
+                }
+              }
+            }
+          }
+        } catch {
+          /* Fallback search failed */
+        }
+      }
+    }
+
+    if (!source) {
       return {
-        status: "unsupported",
-        message: "No supported video source is available.",
+        status: "unavailable",
+        message: "This title is currently unavailable from the provider.",
         checkedAt,
       };
-    allowedUrl(source.url, true);
-    source.subtitles = source.subtitles.filter((t) => {
+    }
+
+    source.subtitles = (source.subtitles || []).filter((t) => {
       try {
         allowedUrl(t.url, true);
         return true;
@@ -332,54 +513,45 @@ export async function resolvePlayback(
         return false;
       }
     });
-    const res = await safeFetch(
-      source.url,
-      { headers: source.format === "mp4" ? { Range: "bytes=0-1023" } : {} },
-      true,
-    );
-    if (!res.ok) {
-      await res.body?.cancel();
-      return {
-        status:
-          res.status === 403 || res.status === 401
-            ? "restricted"
-            : "unavailable",
-        message:
-          res.status === 403 || res.status === 401
-            ? "The provider does not allow access from this connection."
-            : "This video is currently unavailable.",
-        checkedAt,
-      };
-    }
-    const type = res.headers.get("content-type") || "";
-    if (source.format === "mp4") {
-      await res.body?.cancel();
-      if (!type.includes("video/") || res.status !== 206)
-        return {
-          status: "unsupported",
-          message: "This source does not support reliable seeking.",
-          checkedAt,
-        };
-    } else {
-      const playlist = await boundedText(res, 150_000);
-      if (!playlist.startsWith("#EXTM3U"))
-        return {
-          status: "unsupported",
-          message: "The provider returned an invalid playlist.",
-          checkedAt,
-        };
-      const lines = playlist
-        .split("\n")
-        .filter((l) => l.trim() && !l.startsWith("#"));
-      for (const line of lines)
-        allowedUrl(new URL(line.trim(), source.url).href, true);
-    }
+
     return { status: "ready", message: "", ...source, checkedAt };
   } catch {
     return {
       status: "unavailable",
-      message: "We could not reach this video. Try again later.",
+      message: "This title is currently unavailable from the provider.",
       checkedAt,
     };
+  }
+}
+
+const cookieCache = new Map<string, { cookies: string; expires: number }>();
+export async function getCineplexCookies(
+  id?: string,
+  season = 1,
+  episode = 1,
+): Promise<string> {
+  const key = id ? `${id}:${season}:${episode}` : "default";
+  const cached = cookieCache.get(key);
+  if (cached && cached.expires > Date.now()) return cached.cookies;
+  const pid = id ? id.replace(/^(series|movie)-/, "") : "10527";
+  const p = `/watch.php?id=${pid}&season=${season}&ep=${episode}`;
+  try {
+    const res = await safeFetch(ORIGIN + p, {
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" },
+    });
+    const setCookies = res.headers.getSetCookie
+      ? res.headers.getSetCookie()
+      : [res.headers.get("set-cookie")];
+    const cookieStr = (setCookies || [])
+      .filter((c): c is string => typeof c === "string")
+      .map((c) => c.split(";")[0])
+      .join("; ");
+    cookieCache.set(key, {
+      cookies: cookieStr,
+      expires: Date.now() + 10 * 60 * 1000,
+    });
+    return cookieStr;
+  } catch {
+    return "";
   }
 }

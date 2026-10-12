@@ -13,7 +13,13 @@ export function allowedUrl(value: string, media = false): URL {
   const host = u.hostname.toLowerCase();
   const allowed =
     (host === "cineplexbd.net" && !u.port) ||
-    (media && host === "vod.cineplexbd.net" && u.port === "8081");
+    (media && host === "vod.cineplexbd.net" && u.port === "8081") ||
+    (media &&
+      host === "103.136.200.124" &&
+      (u.port === "8086" || u.port === "8081")) ||
+    (media &&
+      (host === "commondatastorage.googleapis.com" ||
+        host === "test-streams.mux.dev"));
   if (
     !allowed ||
     u.username ||

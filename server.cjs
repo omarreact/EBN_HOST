@@ -1,5 +1,7 @@
 "use strict";
 const http = require("node:http");
+const { loadEnvConfig } = require("@next/env");
+loadEnvConfig(__dirname);
 const next = require("next");
 const prefix = "/ebn-host-live";
 const app = next({ dev: false, dir: __dirname });
@@ -33,7 +35,10 @@ app
         res.end("Temporarily unavailable");
       });
     });
-    server.listen(process.env.PORT || 3000);
+    const port = Number(process.env.PORT) || 3000;
+    server.listen(port, "0.0.0.0", () => {
+      console.log(`PinFlix server listening on 0.0.0.0:${port}`);
+    });
     const stop = () => {
       server.close(() => process.exit(0));
       setTimeout(() => process.exit(0), 8000).unref();

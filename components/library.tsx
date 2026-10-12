@@ -21,15 +21,12 @@ export function ContinueWatching() {
   }, []);
   if (!entries.length) return null;
   return (
-    <section className="section">
+    <section className="section continue-watching-section">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">RIGHT WHERE YOU LEFT OFF</p>
+          <p className="eyebrow">RESUME PLAYBACK</p>
           <h2>Continue watching</h2>
         </div>
-        <Link className="text-button" href="/library">
-          Your space <ArrowUpRight size={16} />
-        </Link>
       </div>
       <div className="card-row">
         {entries.map((e) => (
@@ -37,6 +34,11 @@ export function ContinueWatching() {
             key={e.title.id + e.season + e.episode}
             title={e.title}
             progress={(e.position / e.duration) * 100}
+            subtitle={
+              e.title.kind === "series"
+                ? `S${e.season} · E${e.episode}`
+                : `${Math.round(e.position / 60)}m / ${Math.round(e.duration / 60)}m`
+            }
           />
         ))}
       </div>

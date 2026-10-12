@@ -64,7 +64,8 @@ for ATTEMPT in {1..30}; do
   if curl --fail --silent --max-time 2 "http://127.0.0.1:$PROBE_PORT$HEALTH_PATH" >"$RELEASE/health-check.json"; then READY=1; break; fi
   sleep 1
 done
-[[ "$READY" == 1 ]] || { echo "Startup check failed for $COMMIT; active release unchanged"; exit 1; }
+[[ "$READY" == 1 ]] || { printf '[%s] Startup check failed for %s; active release unchanged\n' "$(date -u +%FT%TZ)" "$COMMIT"; exit 1; }
+printf '[%s] Health check passed for %s\n' "$(date -u +%FT%TZ)" "$COMMIT"
 kill "$PROBE_PID" 2>/dev/null || true
 wait "$PROBE_PID" 2>/dev/null || true
 trap - EXIT
@@ -73,9 +74,13 @@ if [[ -f "$STATE/active.json" ]]; then cp -p "$STATE/active.json" "$STATE/manife
 # Overwrite only this deployment's pointer; the previous pointer and releases remain.
 cp "$STATE/manifests/$STAMP.json" "$STATE/active.json"
 touch "$ROOT/tmp/restart.txt"
+if [[ -d "/home/akogsfas/ebn-host-runtime/tmp" ]]; then
+  touch "/home/akogsfas/ebn-host-runtime/tmp/restart.txt"
+fi
 if command -v cloudlinux-selector >/dev/null 2>&1; then
-  cloudlinux-selector restart --json --interpreter nodejs --app-root ebn-host
+  cloudlinux-selector restart --json --interpreter nodejs --app-root ebn-host 2>/dev/null || true
+  cloudlinux-selector restart --json --interpreter nodejs --app-root ebn-host-runtime 2>/dev/null || true
 else
   echo 'CloudLinux restart command unavailable; Passenger restart file used'
 fi
-echo "Activated $COMMIT; application restart requested"
+printf '[%s] Activated %s; release=%s\n' "$(date -u +%FT%TZ)" "$COMMIT" "$RELEASE_NAME"

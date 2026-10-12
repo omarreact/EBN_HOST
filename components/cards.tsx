@@ -5,9 +5,11 @@ import { Artwork } from "./artwork";
 export function Card({
   title: t,
   progress,
+  subtitle,
 }: {
   title: Title;
   progress?: number;
+  subtitle?: string;
 }) {
   return (
     <Link className="card" href={"/title/" + t.id}>
@@ -27,9 +29,15 @@ export function Card({
       </div>
       <h3>{t.title}</h3>
       <p>
-        {t.year || "Year unavailable"}
-        <span>·</span>
-        {t.category || (t.kind === "series" ? "Series" : "Movie")}
+        {subtitle ? (
+          subtitle
+        ) : (
+          <>
+            {t.year || "Year unavailable"}
+            <span>·</span>
+            {t.category || (t.kind === "series" ? "Series" : "Movie")}
+          </>
+        )}
       </p>
     </Link>
   );

@@ -127,7 +127,9 @@ test("year filtering uses real normalized records", () => {
 });
 test("playback gate never exposes a source without authorization", async () => {
   const previous = process.env.CINEPLEX_PLAYBACK_AUTHORIZED;
+  const previousTest = process.env.PINFLIX_TEST_MEDIA;
   process.env.CINEPLEX_PLAYBACK_AUTHORIZED = "false";
+  delete process.env.PINFLIX_TEST_MEDIA;
   try {
     const p = await resolvePlayback("movie-40571");
     assert.equal(p.status, "authorization_required");
@@ -135,5 +137,25 @@ test("playback gate never exposes a source without authorization", async () => {
   } finally {
     if (previous === undefined) delete process.env.CINEPLEX_PLAYBACK_AUTHORIZED;
     else process.env.CINEPLEX_PLAYBACK_AUTHORIZED = previous;
+    if (previousTest === undefined) delete process.env.PINFLIX_TEST_MEDIA;
+    else process.env.PINFLIX_TEST_MEDIA = previousTest;
+  }
+});
+test("test media mode resolves authorized sample video streams", async () => {
+  const previous = process.env.PINFLIX_TEST_MEDIA;
+  process.env.PINFLIX_TEST_MEDIA = "true";
+  try {
+    const moviePlayback = await resolvePlayback("movie-77533");
+    assert.equal(moviePlayback.status, "ready");
+    assert.equal(moviePlayback.format, "mp4");
+    assert.match(moviePlayback.url!, /^https:\/\//);
+
+    const seriesPlayback = await resolvePlayback("series-31416", 1, 1);
+    assert.equal(seriesPlayback.status, "ready");
+    assert.equal(seriesPlayback.format, "hls");
+    assert.match(seriesPlayback.url!, /^https:\/\//);
+  } finally {
+    if (previous === undefined) delete process.env.PINFLIX_TEST_MEDIA;
+    else process.env.PINFLIX_TEST_MEDIA = previous;
   }
 });

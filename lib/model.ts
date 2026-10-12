@@ -61,4 +61,8 @@ export type Playback = {
   checkedAt: string;
 };
 export const BASE = "/ebn-host-live";
-export const api = (path: string) => BASE + "/api" + path;
+export const api = (path: string) => {
+  const [resource, query] = path.split("?");
+  const clean = resource.endsWith("/") ? resource : resource + "/";
+  return BASE + "/api" + clean + (query ? "?" + query : "");
+};

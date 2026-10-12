@@ -5,13 +5,25 @@ import { ArrowUpRight, Plus, Check } from "lucide-react";
 import type { Title } from "@/lib/model";
 import { saved, toggleSave } from "@/lib/storage";
 import { Artwork } from "./artwork";
+function hashAccent(src: string) {
+  let hash = 0;
+  for (let i = 0; i < src.length; i++) hash = (hash * 31 + src.charCodeAt(i)) >>> 0;
+  const r = 100 + (hash % 100);
+  const g = 110 + ((hash >> 4) % 90);
+  const b = 130 + ((hash >> 8) % 80);
+  return `${r}, ${g}, ${b}`;
+}
+
 export function useAccent(src: string | null) {
-  const [accent, setAccent] = useState("136, 181, 150");
+  const [accent, setAccent] = useState(() =>
+    src && src.includes("image.tmdb.org") ? hashAccent(src) : "136, 181, 150",
+  );
   useEffect(() => {
-    if (!src) return;
+    if (!src || src.includes("image.tmdb.org")) return;
     let cancelled = false;
     const im = new Image();
     im.crossOrigin = "anonymous";
+    im.onerror = () => {};
     im.onload = () => {
       try {
         const c = document.createElement("canvas");
