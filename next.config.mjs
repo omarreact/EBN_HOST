@@ -1,6 +1,5 @@
 import { fileURLToPath } from "node:url";
 const config = {
-  basePath: "/ebn-host-live",
   trailingSlash: true,
   poweredByHeader: false,
   reactStrictMode: true,
