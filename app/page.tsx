@@ -10,7 +10,8 @@ import type { Title } from "@/lib/model";
 // Render the bundled catalogue immediately. An unreachable HTTP origin should
 // never hold up the initial HTTPS page render on Vercel.
 const fallback: Catalogue = {
-  items: TitleSchema.array().parse(snapshot.items),
+  // Respect the existing age gate even when only the static fallback is shown.
+  items: TitleSchema.array().parse(snapshot.items).filter((title) => !title.mature),
   categories: snapshot.categories.map((category) => ({
     name: category.name,
     kind: category.kind === "series" ? "series" : "movie",
