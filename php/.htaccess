@@ -2,6 +2,7 @@ Options -Indexes -MultiViews
 DirectoryIndex index.php
 <IfModule mod_rewrite.c>
 RewriteEngine On
+RewriteRule ^\.well-known/acme-challenge/ - [L]
 RewriteRule ^(?:private|tests)(?:/|$) - [F,L,NC]
 RewriteRule ^(?:\.|composer|package-lock|node_modules) - [F,L,NC]
 RewriteRule ^api/?$ api/index.php [L,QSA]
