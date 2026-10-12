@@ -1,8 +1,6 @@
 "use strict";
 // Public smoke test for the root-domain Passenger cutover.
 // This validates routing and assets, NOT third-party playback permission or decoding.
-const { setTimeout: delay } = require("node:timers/promises");
-
 const origin = new URL(process.env.PINFLIX_TARGET_ORIGIN || process.argv[2] || "https://test.pincodeit.com");
 if (!["https:", "http:"].includes(origin.protocol)) throw new Error("Provide an HTTP(S) origin");
 const expected = process.env.EXPECTED_COMMIT || "";
