@@ -427,7 +427,7 @@ export async function resolvePlayback(
       }
     } else {
       const playerHtml = await boundedTextSafe(path).catch(() => "");
-      let parsed = sourceFromHtml(playerHtml);
+      const parsed = sourceFromHtml(playerHtml);
       if (parsed) {
         try {
           allowedUrl(parsed.url, true);
