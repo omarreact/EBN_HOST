@@ -27,6 +27,10 @@ Mature entries are disabled unless `PINFLIX_MATURE_ENABLED=true`; the self-attes
 - `data/catalogue.json`: dated metadata snapshot of genuine retrieved records, used only as a disclosed fallback. This is not a video asset mirror or a claim of full catalogue coverage.
 - `lib/storage.ts`: schema-validated, versioned browser storage for list and progress; no accounts or secrets.
 
+## Prebuilt cPanel deployment (recommended for the current host)
+
+CloudLinux's 4 GiB process-address-space limit caused the on-host Next.js build to fail with a V8 out-of-memory error. The GitHub Actions workflow now packages a **precompiled Node.js 24 production runtime** after the existing build/test checks pass. Download the `pinflix-ebn-prebuilt-node24` artifact from a successful Actions run, upload/extract it to the **private** `pinflix-ebn-app` folder, install runtime dependencies if needed, and restart cPanel's Node.js app. **Do not rebuild on EBN.** See [EBN-PREBUILT-DEPLOY.md](EBN-PREBUILT-DEPLOY.md) for exact installation, verification, and rollback steps.
+
 ## EBN deployment
 
 The existing `bootstrap.cjs`, `deploy/poll-main.sh`, retained release directories and activation contract are preserved. `server.cjs` now starts Next.js and accepts Passenger's PORT. This branch serves Next.js directly at `/` and has no build-time `basePath`. The EBN Passenger application URL must also be switched to the domain root before merging this branch to `main`. A regular production build is used: standalone tracing does not include custom startup servers.
