@@ -39,3 +39,39 @@ jobs:
         env:
           CINEPLEX_PLAYBACK_AUTHORIZED: "false"
           PINFLIX_MATURE_ENABLED: "false"
+
+      - name: Assemble prebuilt cPanel runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s .next/BUILD_ID
+          test -f .next/routes-manifest.json
+          mkdir -p dist/ebn-runtime/.next
+          # Copy the complete Next.js output, including hidden .next files, but
+          # skip the large compiler cache (not needed by the production server).
+          rsync -a --exclude='/cache/' .next/ dist/ebn-runtime/.next/
+          # Keep an explicit allowlist: never upload .env, .git or node_modules.
+          cp -a package.json package-lock.json server.cjs next.config.mjs dist/ebn-runtime/
+          for dir in app components data lib public scripts; do
+            if [ -d "$dir" ]; then cp -a "$dir" dist/ebn-runtime/; fi
+          done
+          printf '%s\n' "$GITHUB_SHA" > dist/ebn-runtime/EBN_BUILD_SHA
+          test -s dist/ebn-runtime/.next/BUILD_ID
+          test -f dist/ebn-runtime/server.cjs
+          test -f dist/ebn-runtime/package-lock.json
+          test ! -d dist/ebn-runtime/.next/cache
+          test ! -d dist/ebn-runtime/node_modules
+          test ! -d dist/ebn-runtime/.git
+          if find dist/ebn-runtime -type f -name '.env*' -print -quit | grep -q .; then
+            echo "::error::Refusing to publish environment files"
+            exit 1
+          fi
+
+      - name: Upload prebuilt runtime for EBN cPanel
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinflix-ebn-prebuilt-node24
+          path: dist/ebn-runtime/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 14
