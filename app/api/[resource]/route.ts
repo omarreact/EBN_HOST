@@ -187,10 +187,7 @@ export async function GET(
     } else if (resource === "stream") {
       // The media relay must not bypass the playback feature gate.
       // Keep it closed on public deployments until provider permission is confirmed.
-      if (
-        process.env.CINEPLEX_PLAYBACK_AUTHORIZED !== "true" &&
-        process.env.PINFLIX_TEST_MEDIA !== "true"
-      ) {
+      if (process.env.CINEPLEX_PLAYBACK_AUTHORIZED !== "true") {
         return NextResponse.json(
           { error: "Playback authorization required." },
           { status: 403, headers: { "Cache-Control": "no-store" } },
