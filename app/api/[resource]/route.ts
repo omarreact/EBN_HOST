@@ -185,6 +185,17 @@ export async function GET(
       }
       return NextResponse.redirect(pb.url);
     } else if (resource === "stream") {
+      // The media relay must not bypass the playback feature gate.
+      // Keep it closed on public deployments until provider permission is confirmed.
+      if (process.env.CINEPLEX_PLAYBACK_AUTHORIZED !== "true") {
+        return NextResponse.json(
+          { error: "Playback authorization required." },
+          { status: 403, headers: { "Cache-Control": "no-store" } },
+        );
+      }
+      if (!id) {
+        return NextResponse.json({ error: "Missing title ID." }, { status: 400 });
+      }
       const targetUrl = p.data.url;
       if (!targetUrl)
         return NextResponse.json({ error: "Missing url." }, { status: 400 });
