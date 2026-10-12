@@ -16,6 +16,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - name: Set up PHP 8.2
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          extensions: curl, dom, libxml
+          coverage: none
       - name: PHP version and extensions
         run: php -v && php -m
       - name: Syntax check
