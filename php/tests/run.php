@@ -33,6 +33,13 @@ check(count(pf_filter($items, ['kind'=>'series'])) === 1, 'Kind filter works');
 check(count(pf_filter($items, ['year'=>2025])) === 1, 'Year filter works');
 check(count(pf_filter($items, ['q'=>'example film'])) === 1, 'Title filter works');
 
+putenv('PINFLIX_OFFLINE_MODE=true');
+if (class_exists('DOMDocument')) {
+    $html = '<a href="/view.php?id=789"><img alt="Example Feature" src="http://cineplexbd.net/uploads/a.jpg"/><span>2025</span></a>';
+    $parsed = pf_parse_titles($html);
+    check(count($parsed) === 1 && $parsed[0]['id'] === 'movie-789', 'Movie cards parsed from provider HTML');
+    check($parsed[0]['year'] === 2025, 'Movie year extracted from provider HTML');
+}
 $detail = pf_detail($seed['items'][0]['id']);
 check(($detail['title']['id'] ?? '') === $seed['items'][0]['id'], 'Detail falls back to existing metadata');
 check(($detail['stale'] ?? false) === true || is_array($detail), 'Fallback metadata labeled as stale');
