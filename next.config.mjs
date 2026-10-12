@@ -1,11 +1,8 @@
-import { fileURLToPath } from "node:url";
 const config = {
   trailingSlash: true,
   poweredByHeader: false,
   reactStrictMode: true,
-  experimental: { cpus: 1, webpackBuildWorker:false, workerThreads:true, webpackMemoryOptimizations:true },
   serverExternalPackages: ["cheerio"],
-  outputFileTracingRoot: fileURLToPath(new URL(".", import.meta.url)),
   async headers() {
     return [
       {
