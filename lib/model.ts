@@ -60,7 +60,7 @@ export type Playback = {
   subtitles?: { url: string; label: string; language: string }[];
   checkedAt: string;
 };
-export const BASE = "/ebn-host-live";
+export const BASE = "";
 export const api = (path: string) => {
   const [resource, query] = path.split("?");
   const clean = resource.endsWith("/") ? resource : resource + "/";
