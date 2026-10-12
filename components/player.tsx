@@ -20,6 +20,17 @@ import {
 import { api, type Playback, type Title } from "@/lib/model";
 import { resume, saveProgress } from "@/lib/storage";
 import { formatTime, mediaError, clampSeek } from "@/lib/player";
+
+// Native audio tracks are browser-specific; keep DOM mutations in an event helper.
+function chooseNativeAudioTrack(element: HTMLVideoElement | null, selected: number) {
+  const tracks = (element as (HTMLVideoElement & {
+    audioTracks?: ArrayLike<{ enabled: boolean }>;
+  }) | null)?.audioTracks;
+  if (!tracks?.length) return;
+  for (let i = 0; i < tracks.length; i++) {
+    tracks[i].enabled = i === (selected < 0 ? 0 : selected);
+  }
+}
 export function Player({
   source,
   title,
@@ -93,8 +104,9 @@ export function Player({
     const target = e.target as HTMLElement;
     if (target.closest("button, select, input, a, label")) return;
 
-    lastTouchTime.current = Date.now();
-    const now = Date.now();
+    // Event timestamps share a clock with the synthetic click after a touch.
+    const now = e.timeStamp;
+    lastTouchTime.current = now;
     const touch = e.changedTouches[0];
     const rect = frame.current?.getBoundingClientRect();
     if (!rect) return;
@@ -400,7 +412,7 @@ export function Player({
       onFocus={reveal}
       onTouchEnd={handleTouchEnd}
       onClick={(e) => {
-        if (Date.now() - lastTouchTime.current < 450) return;
+        if (e.timeStamp - lastTouchTime.current < 450) return;
         const tag = (e.target as HTMLElement).tagName;
         if (["INPUT", "SELECT", "BUTTON", "A"].includes(tag)) return;
         if (!visible) {
@@ -632,12 +644,7 @@ export function Player({
                   if (engine.current) {
                     engine.current.audioTrack = val;
                   }
-                  const nativeAudio = (video.current as unknown as { audioTracks?: { enabled: boolean }[] })?.audioTracks;
-                  if (nativeAudio && nativeAudio.length > 0) {
-                    for (let i = 0; i < nativeAudio.length; i++) {
-                      nativeAudio[i].enabled = val === -1 ? i === 0 : i === val;
-                    }
-                  }
+                  chooseNativeAudioTrack(video.current, val);
                 }}
               >
                 <option value={-1}>Audio: {audios[0]?.name || "Default"}</option>
