@@ -102,6 +102,7 @@ function pf_http_read(string $url, int $limit = PF_MAX_RESPONSE): string {
     return $body;
 }
 function pf_upstream(string $endpoint, array $params = []): string {
+    if (pf_enabled('PINFLIX_OFFLINE_MODE')) throw new RuntimeException('offline_mode');
     if (!in_array($endpoint, ['/', '/search.php', '/search_ajax.php', '/category.php', '/tcategory.php',
         '/tvs.php', '/tvs_more.php', '/view.php', '/watch.php'], true)) throw new InvalidArgumentException('invalid_endpoint');
     $url = PF_ORIGIN . $endpoint . ($params ? '?' . http_build_query($params, '', '&', PHP_QUERY_RFC3986) : '');
@@ -147,7 +148,10 @@ function pf_parse_titles(string $markup, ?string $kindFilter = null): array {
     $items = [];
     foreach ($links as $a) {
         $href = pf_attr($a, 'href');
+        $linkHost = parse_url($href, PHP_URL_HOST);
+        if ($linkHost !== null && strtolower((string) $linkHost) !== 'cineplexbd.net') continue;
         $path = parse_url($href, PHP_URL_PATH);
+        if (!str_starts_with((string)$path, '/')) $path = '/' . ltrim((string)$path, '/');
         $kind = in_array($path, ['/view.php','/player.php'], true) ? 'movie'
             : (in_array($path, ['/watch.php','/tview.php'], true) ? 'series' : null);
         if (!$kind || ($kindFilter && $kind !== $kindFilter)) continue;
@@ -213,6 +217,8 @@ function pf_catalogue(array $q): array {
         if ($term !== '') {
             $items = pf_parse_search(pf_upstream('/search_ajax.php', ['q'=>$term,'limit'=>60]));
             if (!$items) $items = pf_parse_titles(pf_upstream('/search.php', ['q'=>$term]));
+        } elseif ($kind === 'series' && $category !== '') {
+            $items = pf_parse_titles(pf_upstream('/tcategory.php', ['page'=>$page,'category'=>$category]), 'series');
         } elseif ($kind === 'series') {
             $items = pf_parse_titles(pf_upstream('/tvs.php'), 'series');
         } elseif ($category !== '') {
@@ -230,7 +236,7 @@ function pf_catalogue(array $q): array {
     $items = pf_filter($items, ['kind'=>$kind, 'category'=>$category, 'year'=>$year, 'q'=>$term]);
     $perPage = 24;
     $start = $stale ? ($page - 1) * $perPage : 0;
-    $hasNext = count($items) > $start + $perPage;
+    $hasNext = $stale ? count($items) > $start + $perPage : count($items) >= $perPage;
     return [
         'items'=>array_slice($items, $start, $perPage),
         'categories'=>array_values(array_filter($seed['categories'] ?? [], static fn($c) => is_array($c) && (!($c['mature'] ?? false) || pf_enabled('PINFLIX_MATURE_ENABLED')))),
@@ -299,10 +305,13 @@ function pf_playback(string $id, int $season, int $episode): array {
     $key = $id . ($season ? ':'.$season.':'.$episode : '');
     $entry = $media[$key] ?? $media[$id] ?? null;
     $url = $entry['url'] ?? '';
-    $host = is_string($url) ? parse_url($url, PHP_URL_HOST) : null;
-    $allow = array_filter(array_map('trim', explode(',', (string) (getenv('PINFLIX_MEDIA_HOSTS') ?: ''))));
-    if (!is_array($entry) || !is_string($url) || parse_url($url, PHP_URL_SCHEME) !== 'https'
-        || !in_array($host, $allow, true)
+    $parts = is_string($url) ? parse_url($url) : false;
+    $host = is_array($parts) ? strtolower((string)($parts['host'] ?? '')) : '';
+    $allow = array_filter(array_map('trim', explode(',', strtolower((string)(getenv('PINFLIX_MEDIA_HOSTS') ?: '')))));
+    if (!is_array($entry) || !is_string($url) || !is_array($parts) ||
+        ($parts['scheme'] ?? '') !== 'https' ||
+        isset($parts['user']) || isset($parts['pass']) || isset($parts['fragment']) ||
+        !in_array($host, $allow, true)
         || !preg_match('/\.(mp4|m3u8)(?:\?|$)/i', $url)) {
         return ['status'=>'unavailable','message'=>'No approved HTTPS media source configured for this title.','checkedAt'=>gmdate('c')];
     }
