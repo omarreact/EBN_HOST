@@ -1,4 +1,4 @@
-name: PinFlix cPanel — one-time import of the verified working ZIP
+name: PinFlix cPanel — read-only import of verified live site
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   import:
-    name: Import original live-working cPanel package (no deployment)
+    name: Read cPanel via FTPS and import protected files
     runs-on: ubuntu-latest
     if: ${{ github.ref == 'refs/heads/cpanel-release' }}
     steps:
@@ -20,42 +20,24 @@ jobs:
         with:
           ref: cpanel-release
           persist-credentials: true
-      - name: Retrieve the already-uploaded cPanel ZIP
+      - name: Download live site over FTPS (read-only) and verify SHA-256
+        env:
+          CPANEL_FTP_HOST: ${{ secrets.CPANEL_FTP_HOST }}
+          CPANEL_FTP_USERNAME: ${{ secrets.CPANEL_FTP_USERNAME }}
+          CPANEL_FTP_PASSWORD: ${{ secrets.CPANEL_FTP_PASSWORD }}
+          CPANEL_FTP_REMOTE_DIR: ${{ secrets.CPANEL_FTP_REMOTE_DIR }}
+        run: python3 scripts/import-live-site-via-ftps.py
+      - name: Verify playback, provider and site bundle unchanged
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --show-error --silent --location --retry 2 \
-            --connect-timeout 15 --max-time 120 \
-            --proto '=https,http' --proto-redir '=https,http' \
-            'http://pinflix.akogs-fashion.com/PinFlix-UI-Only-Working-Playback-cPanel.zip' \
-            --output /tmp/pinflix-working.zip
-          echo "Received file type:"
-          file /tmp/pinflix-working.zip
-          echo "Received file size:"
-          wc -c </tmp/pinflix-working.zip
-          echo "Received SHA256:"
-          sha256sum /tmp/pinflix-working.zip | cut -d' ' -f1
-          if ! unzip -tq /tmp/pinflix-working.zip >/dev/null 2>&1; then
-            echo "::error::Hosting URL did not return a valid ZIP. No files were imported."
-            exit 1
-          fi
-          echo "Archive is valid; each protected source file will be verified before commit."
-      - name: Extract and verify the complete original site
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p site
-          unzip -q -o /tmp/pinflix-working.zip -d site
           python3 scripts/verify-preserved.py
           php -l site/api.php
           node --check site/js/cinematic-polish.js
           grep -Fq 'cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js' site/index.html
           grep -Fq 'js/app.bundle.js' site/index.html
           grep -Fq 'css/cinematic-polish.css' site/index.html
-          echo '99c11b002dba7425c27a16f8a6f00839ee85bc9a645b4eabfe24a8e0572d3567  site/index.html' | sha256sum -c
-          echo 'bc5522ddd5fee9cabfa3f80d85be74eac68dfcd415514359584b57d12561b91b  site/css/cinematic-polish.css' | sha256sum -c
-          echo '65302c5de3a9f54080b50771f56c531c356ac9cf59fa2c46f59860173157da5a  site/js/cinematic-polish.js' | sha256sum -c
-      - name: Commit verified cPanel files to cpanel-release
+      - name: Commit verified files into cpanel-release (never deploy to hosting)
         shell: bash
         run: |
           set -euo pipefail
@@ -63,8 +45,8 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add site/
           if git diff --cached --quiet; then
-            echo 'Already imported; no change.'
+            echo 'Already imported; nothing to commit.'
           else
-            git commit -m 'chore(cpanel): import checksum-verified working PHP site [skip ci]'
+            git commit -m 'chore(cpanel): import verified working site source [skip ci]'
             git push origin HEAD:cpanel-release
           fi
