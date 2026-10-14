@@ -1,0 +1,72 @@
+name: PinFlix — Public Live Website Check
+
+on:
+  push:
+    branches: [cpanel-release]
+    paths:
+      - ".github/workflows/pinflix-public-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-status:
+    name: Check published PinFlix site and API (read only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check homepage, CSS, JavaScript and PHP gateway
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, re, time, urllib.request, urllib.error
+          base = "http://pinflix.akogs-fashion.com"
+          checks = [
+            ("homepage", "/"),
+            ("ambient CSS", "/css/cinematic-polish.css?v=2.1"),
+            ("application JavaScript", "/js/app.bundle.js"),
+            ("PHP API health", "/api.php?action=health"),
+            ("movie catalogue", "/api.php?action=catalogue&kind=movie&page=1"),
+            ("TV catalogue", "/api.php?action=catalogue&kind=series&page=1"),
+          ]
+          outcomes = []
+          for label, path in checks:
+            start = time.monotonic()
+            req = urllib.request.Request(base+path, headers={"User-Agent":"PinFlix-read-only-public-health-check/1.0", "Accept": "text/html,application/json,*/*"})
+            try:
+              with urllib.request.urlopen(req, timeout=18) as response:
+                content = response.read(300000)
+                status, url, ctype = response.status, response.url, response.headers.get("Content-Type","")
+              row = {"check":label,"status":status,"url":url,"type":ctype,"elapsed_s":round(time.monotonic()-start,2),"bytes_sampled":len(content)}
+              if label=="homepage" and "html" in ctype:
+                title=re.search(r"<title[^>]*>(.*?)</title>",content.decode("utf-8","replace"),re.I|re.S)
+                row["title"]=title.group(1).strip()[:100] if title else None
+                row["ui_css_present"]=b"cinematic-polish.css" in content
+                row["player_script_present"]=b"app.bundle.js" in content
+              if "catalogue" in label or "health" in label:
+                try:
+                  payload=json.loads(content)
+                  if "health" in label:
+                    row["ok"]=payload.get("ok")
+                    row["service"]=payload.get("service")
+                  else:
+                    items=payload.get("items", [])
+                    row["items"]=len(items) if isinstance(items,list) else None
+                    row["pagination_keys"]=[x for x in ["page","hasNext","total"] if x in payload]
+                except (ValueError,AttributeError):
+                  row["json_valid"]=False
+              outcomes.append(row)
+            except urllib.error.HTTPError as exc:
+              outcomes.append({"check":label,"status":exc.code,"url":exc.url,"error":str(exc.reason)[:150]})
+            except Exception as exc:
+              outcomes.append({"check":label,"error":str(exc)[:220]})
+          print(json.dumps(outcomes,indent=2,ensure_ascii=False))
+          with open("pinflix-public-check.json","w") as out: json.dump(outcomes,out,indent=2)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pinflix-public-check
+          path: pinflix-public-check.json
+          retention-days: 3
