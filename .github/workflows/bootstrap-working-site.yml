@@ -5,6 +5,7 @@ on:
     branches: [cpanel-release]
     paths:
       - ".github/workflows/bootstrap-working-site.yml"
+      - "scripts/import-live-site-via-ftps.py"
   workflow_dispatch:
 
 permissions:
