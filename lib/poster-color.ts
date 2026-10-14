@@ -47,14 +47,32 @@ export function dominantPosterRgb(pixels: Uint8ClampedArray): Rgb | null {
   }
   const top = bins.reduce((best, bin) => bin.count > best.count ? bin : best);
   if (!top.count) return null;
-  return clampVibrantRgb([top.r / top.count, top.g / top.count, top.b / top.count]);
+  return coolAmbientRgb([top.r / top.count, top.g / top.count, top.b / top.count]);
+}
+
+/**
+ * Keeps pixel-dependent ambient lighting but maps it into cool hues.
+ * Natural artwork is never modified, only the low-opacity glow.
+ * Blue/periwinkle hues (205°..265°) prevent aggressive red/pink wash.
+ */
+export function coolAmbientRgb(rgb: Rgb): Rgb {
+  const [sourceHue, sourceSaturation, sourceLightness] = toHsl(rgb);
+  const hue = 205 + (sourceHue / 360) * 60;
+  const saturation = Math.max(0.28, Math.min(0.55, sourceSaturation));
+  const lightness = Math.max(0.28, Math.min(0.5, sourceLightness));
+  const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
+  const x = chroma * (1 - Math.abs((hue / 60) % 2 - 1));
+  const m = lightness - chroma / 2;
+  let channels: Rgb;
+  if (hue < 240) channels = [0, x, chroma];
+  else channels = [x, 0, chroma];
+  return channels.map((value) => Math.max(0, Math.round((value + m) * 255))) as unknown as Rgb;
 }
 
 export function posterFallbackRgb(src: string | null): Rgb {
-  if (!src) return [229, 9, 20];
-  const accents: Rgb[] = [
-    [229, 9, 20], [215, 31, 103], [91, 68, 187],
-    [22, 118, 161], [183, 70, 36], [42, 133, 99],
+  if (!src) return [75, 100, 155];
+  const accents: Rgb[] = [    [75, 100, 155], [91, 89, 166], [51, 109, 144],
+    [73, 118, 164], [91, 102, 170], [49, 123, 150],
   ];
   let hash = 0;
   for (const char of src) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;

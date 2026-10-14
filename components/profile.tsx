@@ -103,7 +103,7 @@ export function Profile() {
             </label>
             <span className="small-label">YOUR COLOUR</span>
             <div className="avatar-options">
-              {(["red", "violet", "blue", "amber"] as const).map((c) => (
+              {(["silver", "violet", "blue", "amber"] as const).map((c) => (
                 <button
                   key={c}
                   aria-label={`${c} profile colour`}
