@@ -63,6 +63,14 @@ jobs:
                   continue
               stream=parsed.get("url","")
               print("metadata:",{"status":parsed.get("status"),"format":parsed.get("format"),"media_origin":origin_category(stream)},flush=True)
+              if origin_category(stream)=="same_origin":
+                  q=urllib.parse.parse_qs(urllib.parse.urlsplit(stream).query)
+                  target=q.get("url",[""])[0]
+                  target_parts=urllib.parse.urlsplit(target)
+                  print("upstream_reference:",{"absolute":bool(target_parts.scheme and target_parts.netloc),
+                     "scheme":target_parts.scheme or "(none)", "host":target_parts.hostname or "(none)",
+                     "port":target_parts.port, "path_prefix":target_parts.path.split("/")[1][:24] if "/" in target_parts.path else "(relative)",
+                     "is_hls":".m3u8" in target_parts.path},flush=True)
               if not stream or parsed.get("status")!="ready":continue
               if origin_category(stream)!="same_origin":
                   print("stream_fetch: not attempted (outside user's PHP gateway)",flush=True)
