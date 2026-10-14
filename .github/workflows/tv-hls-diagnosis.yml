@@ -71,6 +71,13 @@ jobs:
                      "scheme":target_parts.scheme or "(none)", "host":target_parts.hostname or "(none)",
                      "port":target_parts.port, "path_prefix":target_parts.path.split("/")[1][:24] if "/" in target_parts.path else "(relative)",
                      "is_hls":".m3u8" in target_parts.path},flush=True)
+              if target_parts.hostname=="vod.cineplexbd.net" and target_parts.port==8081:
+                  # Read-only reachability check; no video segments downloaded.
+                  import hashlib
+                  print("playlist_ref_fingerprint:",hashlib.sha256(target.encode()).hexdigest()[:12],flush=True)
+                  upstream,upblob=call(target,lim=64,secs=12)
+                  upstream["body_kind"]=safe_type(upblob)
+                  print("direct_provider_probe:",upstream,flush=True)
               if not stream or parsed.get("status")!="ready":continue
               if origin_category(stream)!="same_origin":
                   print("stream_fetch: not attempted (outside user's PHP gateway)",flush=True)
