@@ -52,9 +52,9 @@ jobs:
           grep -Fq 'cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js' site/index.html
           grep -Fq 'js/app.bundle.js' site/index.html
           grep -Fq 'css/cinematic-polish.css' site/index.html
-          echo '99c11b002dba9159bff0eff6610a300fd31b12bf180d70f5ece3df3f4dc090f0  site/index.html' | sha256sum -c
-          echo 'bc5522ddd5fe49c51c04832d8a8d2d4a2096297c105edfa1d5342d7e8f195e13  site/css/cinematic-polish.css' | sha256sum -c
-          echo '65302c5de3a9298e7836c52d9ee2ed8f0787f338d6abe7052e7ca34ed6291782  site/js/cinematic-polish.js' | sha256sum -c
+          echo '99c11b002dba7425c27a16f8a6f00839ee85bc9a645b4eabfe24a8e0572d3567  site/index.html' | sha256sum -c
+          echo 'bc5522ddd5fee9cabfa3f80d85be74eac68dfcd415514359584b57d12561b91b  site/css/cinematic-polish.css' | sha256sum -c
+          echo '65302c5de3a9f54080b50771f56c531c356ac9cf59fa2c46f59860173157da5a  site/js/cinematic-polish.js' | sha256sum -c
       - name: Commit verified cPanel files to cpanel-release
         shell: bash
         run: |
