@@ -20,15 +20,31 @@ jobs:
   verify:
     name: Verify original streaming integration untouched
     runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.source.outputs.ready }}
     steps:
       - uses: actions/checkout@v4
+      - id: source
+        name: Check initial site upload
+        shell: bash
+        run: |
+          if [ -f site/api.php ] && [ -f site/index.html ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "Initial setup: upload the working site/ folder from the GitHub Auto-Deploy Kit before enabling deployment." >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Validate release files and original source digests
+        if: steps.source.outputs.ready == 'true'
         run: python3 scripts/verify-preserved.py
       - name: Check cosmetic JavaScript
+        if: steps.source.outputs.ready == 'true'
         run: node --check site/js/cinematic-polish.js
       - name: Check PHP gateway syntax
+        if: steps.source.outputs.ready == 'true'
         run: php -l site/api.php
       - name: Confirm original streaming dependencies and UI includes
+        if: steps.source.outputs.ready == 'true'
         shell: bash
         run: |
           grep -Fq 'cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js' site/index.html
@@ -38,7 +54,7 @@ jobs:
   deploy:
     name: Upload approved site files to cPanel over FTPS
     needs: verify
-    if: ${{ vars.CPANEL_DEPLOY_ENABLED == 'true' }}
+    if: ${{ needs.verify.outputs.ready == 'true' && vars.CPANEL_DEPLOY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     environment: cpanel-production
     steps:
@@ -69,4 +85,6 @@ jobs:
           server-dir: ${{ secrets.CPANEL_FTP_REMOTE_DIR }}
           state-name: .pinflix-cpanel-ftps-state.json
           dangerous-clean-slate: false
+          exclude: |
+            **/.gitkeep
           log-level: standard
