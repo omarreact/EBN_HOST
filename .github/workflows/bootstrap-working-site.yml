@@ -1,0 +1,61 @@
+name: PinFlix cPanel — one-time import of the verified working ZIP
+
+on:
+  push:
+    branches: [cpanel-release]
+    paths:
+      - ".github/workflows/bootstrap-working-site.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    name: Import original live-working cPanel package (no deployment)
+    runs-on: ubuntu-latest
+    if: ${{ github.ref == 'refs/heads/cpanel-release' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cpanel-release
+          persist-credentials: true
+      - name: Retrieve the already-uploaded cPanel ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --show-error --silent --location --retry 2 \
+            --connect-timeout 15 --max-time 120 \
+            --proto '=https,http' --proto-redir '=https,http' \
+            'http://pinflix.akogs-fashion.com/PinFlix-UI-Only-Working-Playback-cPanel.zip' \
+            --output /tmp/pinflix-working.zip
+          echo 'dfd7066d26c0fd801546ef1517cb91eb107abf084f368e2175d7c42cba640dfa  /tmp/pinflix-working.zip' \
+            | sha256sum --check --status || {
+              echo "::error::The uploaded ZIP does not match the verified UI-only release. No files will be imported."
+              exit 1
+            }
+      - name: Extract and verify the complete original site
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p site
+          unzip -q -o /tmp/pinflix-working.zip -d site
+          python3 scripts/verify-preserved.py
+          php -l site/api.php
+          node --check site/js/cinematic-polish.js
+          grep -Fq 'cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js' site/index.html
+          grep -Fq 'js/app.bundle.js' site/index.html
+          grep -Fq 'css/cinematic-polish.css' site/index.html
+      - name: Commit verified cPanel files to cpanel-release
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add site/
+          if git diff --cached --quiet; then
+            echo 'Already imported; no change.'
+          else
+            git commit -m 'chore(cpanel): import checksum-verified working PHP site [skip ci]'
+            git push origin HEAD:cpanel-release
+          fi
