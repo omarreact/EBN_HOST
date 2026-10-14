@@ -5,7 +5,7 @@ import { TitleSchema } from "@/lib/model";
 import { universeFor } from "@/lib/curation";
 import { Hero } from "@/components/hero";
 import { LiveRow } from "@/components/live-row";
-import { PromoVideoSection } from "@/components/promo-video-section";
+import { VideoSpotlightSlider, type SpotlightItem } from "@/components/VideoSpotlightSlider";
 import { MarvelVsDc } from "@/components/marvel-vs-dc";
 import { TimelessClassics } from "@/components/timeless-classics";
 import { HiddenGems } from "@/components/hidden-gems";
@@ -29,6 +29,18 @@ export default function Home() {
     "movie-77533",
     "movie-34110",
   ].flatMap((id) => items.find((t) => t.id === id) || []);
+  // Keep spotlight entries connected to actual catalog routes and My List.
+  const spotlightTitles = ["movie-78828", "movie-78724", "movie-34110"]
+    .flatMap((id) => movies.find((movie) => movie.id === id) || []);
+  const spotlightItems: SpotlightItem[] = spotlightTitles.map((movie, index) => ({
+    movie,
+    trailerUrl: index === 0
+      ? process.env.PINFLIX_SPOTLIGHT_TRAILER_URL ||
+        "https://customer-342mt1gy0ibqe0dl.cloudflarestream.com/ef234f5fd0d362d696350fccd7ebbd10/downloads/default.mp4"
+      : null,
+    synopsis: movie.synopsis ||
+      "Discover " + movie.title + " in the PinFlix collection. Watch the featured video and save this movie to My List.",
+  }));
   const classics = items.filter((t) => t.year && t.year < 2010);
   const gems = items
     .filter((t) => t.year && t.year >= 2010 && t.year < 2020)
@@ -67,9 +79,7 @@ export default function Home() {
           initial={movies.slice(0, 12)}
         />
       </div>
-      <PromoVideoSection
-        poster={featured[1]?.backdrop || featured[1]?.poster || null}
-      />
+      <VideoSpotlightSlider items={spotlightItems} />
       <div className="page-content">
         <LiveRow
           kind="series"

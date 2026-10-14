@@ -3,6 +3,7 @@ import { Shell } from "@/components/shell";
 import { AccountProvider } from "@/components/account-context";
 import { PlaybackProvider } from "@/components/playback-context";
 import { LibrarySyncProvider } from "@/components/library-sync";
+import { spotlightInter, spotlightMarker, spotlightSyne } from "@/lib/fonts";
 import "./globals.css";
 export const metadata: Metadata = {
   title: { default: "PinFlix — A world of stories", template: "%s · PinFlix" },
@@ -13,7 +14,7 @@ export const metadata: Metadata = {
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>
+      <body className={`${spotlightInter.variable} ${spotlightSyne.variable} ${spotlightMarker.variable}`}>
         <AccountProvider>
           <LibrarySyncProvider>
             <PlaybackProvider>
