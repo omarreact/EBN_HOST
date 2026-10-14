@@ -57,8 +57,8 @@ export function PromoVideoSection() {
         )}
 
         {/* Cinematic Gradient Overlays */}
-        <div className="absolute inset-0 bg-gradient-to-r from-[#08090D] via-[#08090D]/80 to-transparent z-10" />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#08090D] via-transparent to-[#08090D]/60 z-10" />
+        <div className="absolute inset-0 bg-gradient-to-r from-[#08090D] via-[#08090D]/80 to-transparent z-10 pointer-events-none" />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#08090D] via-transparent to-[#08090D]/60 z-10 pointer-events-none" />
 
         {/* Mute / Unmute Button */}
         {!failed && (

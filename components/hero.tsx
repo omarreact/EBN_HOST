@@ -111,6 +111,27 @@ export function Hero({ titles }: { titles: Title[] }) {
     };
   }, [selected, isPaused, nextSlide, titles.length]);
 
+  const touchStartX = useRef<number | null>(null);
+  const touchStartY = useRef<number | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX.current === null || touchStartY.current === null) return;
+    const diffX = touchStartX.current - e.changedTouches[0].clientX;
+    const diffY = touchStartY.current - e.changedTouches[0].clientY;
+    // Only trigger if horizontal swipe is dominant and > 45px
+    if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 45) {
+      if (diffX > 0) nextSlide();
+      else prevSlide();
+    }
+    touchStartX.current = null;
+    touchStartY.current = null;
+  };
+
   if (!t)
     return (
       <section className="hero empty">
@@ -125,10 +146,12 @@ export function Hero({ titles }: { titles: Title[] }) {
 
   return (
     <section
-      className="hero relative min-h-[600px] lg:min-h-[700px] flex flex-col justify-between overflow-hidden"
+      className="hero relative min-h-[600px] lg:min-h-[700px] flex flex-col justify-between overflow-hidden touch-pan-y"
       style={{ "--accent": accent } as React.CSSProperties}
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
     >
       {/* Background artwork with smooth fade */}
       <div className="hero-art transition-opacity duration-1000">

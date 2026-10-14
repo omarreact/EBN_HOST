@@ -246,6 +246,19 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </Link>
         </div>
       </header>
+
+      {/* Touch-to-dismiss backdrop for mobile navigation menu */}
+      {menu && (
+        <div
+          className="mobile-backdrop"
+          onClick={() => {
+            setMenu(false);
+            setCatOpen(false);
+          }}
+          aria-hidden="true"
+        />
+      )}
+
       <main id="content">{children}</main>
       
       {/* Footer */}

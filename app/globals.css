@@ -31,6 +31,7 @@ a,
 input,
 select {
   -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 button,
 select {
@@ -104,9 +105,11 @@ select:focus-visible {
   color: #152416;
   padding: 12px;
   z-index: 200;
+  pointer-events: none;
 }
 .skip:focus {
   top: 12px;
+  pointer-events: auto;
 }
 .sr-only {
   position: absolute;
@@ -299,15 +302,25 @@ select:focus-visible {
 .icon-button {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
+  touch-action: manipulation;
 }
 .icon-button:hover {
   background: #ffffff12;
 }
+.icon-button svg,
+.menu-toggle svg,
+button svg,
+a svg {
+  pointer-events: none;
+}
 .menu-toggle {
   display: none;
+  min-width: 44px;
+  min-height: 44px;
+  touch-action: manipulation;
 }
 .hero {
   height: 640px;
@@ -328,16 +341,19 @@ select:focus-visible {
   top: 0;
   width: 65%;
   height: 100%;
+  pointer-events: none;
 }
 .hero-art img {
   width: 100%;
   height: 100%;
   object-position: center 28%;
   opacity: 0.72;
+  pointer-events: none;
 }
 .hero-shade {
   position: absolute;
   inset: 0;
+  pointer-events: none;
   background:
     linear-gradient(
       90deg,
@@ -500,6 +516,9 @@ select:focus-visible {
   gap: 8px;
   overflow-x: auto;
   scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+  overscroll-behavior-x: contain;
 }
 .chips a,
 .chips button {
@@ -513,6 +532,7 @@ select:focus-visible {
   font-size: 11px;
   color: #adb8a6;
   transition: background 0.2s;
+  touch-action: manipulation;
 }
 .chips a:hover,
 .chips button:hover {
@@ -538,6 +558,7 @@ select:focus-visible {
   color: #c4d6b4;
   font-size: 11px;
   padding: 7px 0;
+  touch-action: manipulation;
 }
 .card-row {
   display: grid;
@@ -547,9 +568,14 @@ select:focus-visible {
   overflow-x: auto;
   scrollbar-width: none;
   padding-bottom: 8px;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+  overscroll-behavior-x: contain;
 }
 .card {
   min-width: 0;
+  display: block;
+  touch-action: manipulation;
 }
 .card-art {
   position: relative;
@@ -1464,7 +1490,7 @@ select:focus-visible {
     gap: 7px;
   }
 }
-@media (max-width: 700px) {
+@media (max-width: 768px) {
   .header {
     height: 68px;
     padding-inline: 5vw;
@@ -1489,6 +1515,16 @@ select:focus-visible {
     padding: 18px 5vw;
     gap: 8px;
     box-shadow: 0 20px 25px #0007;
+    z-index: 60;
+  }
+  .mobile-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    z-index: 45;
+    touch-action: none;
   }
   .nav-links.mobile-open a {
     padding: 8px 0;
@@ -1531,6 +1567,10 @@ select:focus-visible {
   }
   .menu-toggle {
     display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    touch-action: manipulation;
   }
   .nav-right {
     gap: 6px;
