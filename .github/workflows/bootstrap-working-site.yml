@@ -27,6 +27,15 @@ jobs:
           CPANEL_FTP_PASSWORD: ${{ secrets.CPANEL_FTP_PASSWORD }}
           CPANEL_FTP_REMOTE_DIR: ${{ secrets.CPANEL_FTP_REMOTE_DIR }}
         run: python3 scripts/import-live-site-via-ftps.py
+      - name: Diagnose FTPS certificate hostname safely (no password shown)
+        if: failure()
+        env:
+          FTP_HOST: ${{ secrets.CPANEL_FTP_HOST }}
+        shell: bash
+        run: |
+          timeout 16 openssl s_client -starttls ftp \
+            -connect "${FTP_HOST}:21" -servername "${FTP_HOST}" \
+            </dev/null 2>/dev/null | openssl x509 -noout -subject -issuer -ext subjectAltName || true
       - name: Verify playback, provider and site bundle unchanged
         shell: bash
         run: |
