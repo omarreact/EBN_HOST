@@ -30,6 +30,8 @@ jobs:
           directory = os.getenv("CPANEL_FTP_REMOTE_DIR", "")
           if not (user and password and directory):
               sys.exit("Missing FTP username, password, or directory secret.")
+          if user.strip() != "omar@pinflix.akogs-fashion.com":
+              sys.exit("FTP username secret does not match the named cPanel subdomain FTP account. Update CPANEL_FTP_USERNAME.")
           ftp = ftplib.FTP_TLS(context=ssl.create_default_context(), timeout=20)
           try:
               ftp.connect("bdix10.ebnserver.com", 21)
