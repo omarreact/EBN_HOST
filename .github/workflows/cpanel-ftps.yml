@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   verify:
-    name: Verify original streaming integration untouched
+    name: Verify only cosmetic files are staged
     runs-on: ubuntu-latest
     outputs:
       ready: ${{ steps.source.outputs.ready }}
@@ -28,29 +28,18 @@ jobs:
         name: Check initial site upload
         shell: bash
         run: |
-          if [ -f site/api.php ] && [ -f site/index.html ]; then
+          if [ -f site/index.html ] && [ -f site/css/cinematic-polish.css ] && [ -f site/js/cinematic-polish.js ]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "Initial setup: upload the working site/ folder from the GitHub Auto-Deploy Kit before enabling deployment." >> "$GITHUB_STEP_SUMMARY"
+            echo "Initial setup: import working UI files before enabling deployment." >> "$GITHUB_STEP_SUMMARY"
           fi
-      - name: Validate release files and original source digests
+      - name: Validate UI-only files and preserved player references
         if: steps.source.outputs.ready == 'true'
-        run: python3 scripts/verify-preserved.py
+        run: python3 scripts/verify-ui-only.py
       - name: Check cosmetic JavaScript
         if: steps.source.outputs.ready == 'true'
         run: node --check site/js/cinematic-polish.js
-      - name: Check PHP gateway syntax
-        if: steps.source.outputs.ready == 'true'
-        run: php -l site/api.php
-      - name: Confirm original streaming dependencies and UI includes
-        if: steps.source.outputs.ready == 'true'
-        shell: bash
-        run: |
-          grep -Fq 'cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js' site/index.html
-          grep -Fq 'js/app.bundle.js' site/index.html
-          grep -Fq 'css/cinematic-polish.css' site/index.html
-          grep -Fq 'js/cinematic-polish.js' site/index.html
   deploy:
     name: Upload UI files only to cPanel over FTPS
     needs: verify

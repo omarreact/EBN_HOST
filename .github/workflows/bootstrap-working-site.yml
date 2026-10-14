@@ -1,11 +1,11 @@
-name: PinFlix cPanel — read-only import of verified live site
+name: PinFlix cPanel — import verified live UI only
 
 on:
   push:
     branches: [cpanel-release]
     paths:
       - ".github/workflows/bootstrap-working-site.yml"
-      - "scripts/import-live-site-via-ftps.py"
+      - "scripts/verify-ui-only.py"
   workflow_dispatch:
 
 permissions:
@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   import:
-    name: Read cPanel via FTPS and import protected files
+    name: Import working UI assets (never touch hosting)
     runs-on: ubuntu-latest
     if: ${{ github.ref == 'refs/heads/cpanel-release' }}
     steps:
@@ -21,42 +21,36 @@ jobs:
         with:
           ref: cpanel-release
           persist-credentials: true
-      - name: Download live site over FTPS (read-only) and verify SHA-256
-        env:
-          CPANEL_FTP_HOST: ${{ secrets.CPANEL_FTP_HOST }}
-          CPANEL_FTP_USERNAME: ${{ secrets.CPANEL_FTP_USERNAME }}
-          CPANEL_FTP_PASSWORD: ${{ secrets.CPANEL_FTP_PASSWORD }}
-          CPANEL_FTP_REMOTE_DIR: ${{ secrets.CPANEL_FTP_REMOTE_DIR }}
-        run: python3 scripts/import-live-site-via-ftps.py
-      - name: Diagnose FTPS certificate hostname safely (no password shown)
-        if: failure()
-        env:
-          FTP_HOST: ${{ secrets.CPANEL_FTP_HOST }}
-        shell: bash
-        run: |
-          timeout 16 openssl s_client -starttls ftp \
-            -connect "${FTP_HOST}:21" -servername "${FTP_HOST}" \
-            </dev/null 2>/dev/null | openssl x509 -noout -subject -issuer -ext subjectAltName || true
-      - name: Verify playback, provider and site bundle unchanged
+      - name: Download the three current working presentation assets
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/verify-preserved.py
-          php -l site/api.php
+          mkdir -p site/css site/js
+          origin='http://pinflix.akogs-fashion.com'
+          for asset in index.html css/cinematic-polish.css js/cinematic-polish.js; do
+            curl --fail --show-error --silent --location --retry 2 \
+              --connect-timeout 15 --max-time 60 --proto '=http,https' \
+              --proto-redir '=http,https' \
+              "${origin}/${asset}" --output "site/${asset}"
+          done
+          echo '99c11b002dba7425c27a16f8a6f00839ee85bc9a645b4eabfe24a8e0572d3567  site/index.html' | sha256sum --check
+          echo 'bc5522ddd5fee9cabfa3f80d85be74eac68dfcd415514359584b57d12561b91b  site/css/cinematic-polish.css' | sha256sum --check
+          echo '65302c5de3a9f54080b50771f56c531c356ac9cf59fa2c46f59860173157da5a  site/js/cinematic-polish.js' | sha256sum --check
+      - name: Ensure only the intended UI is staged
+        shell: bash
+        run: |
+          python3 scripts/verify-ui-only.py
           node --check site/js/cinematic-polish.js
-          grep -Fq 'cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js' site/index.html
-          grep -Fq 'js/app.bundle.js' site/index.html
-          grep -Fq 'css/cinematic-polish.css' site/index.html
-      - name: Commit verified files into cpanel-release (never deploy to hosting)
+      - name: Commit verified UI source into cpanel-release
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add site/
+          git add site/index.html site/css/cinematic-polish.css site/js/cinematic-polish.js
           if git diff --cached --quiet; then
-            echo 'Already imported; nothing to commit.'
+            echo "The working UI is already imported."
           else
-            git commit -m 'chore(cpanel): import verified working site source [skip ci]'
+            git commit -m 'chore(cpanel): import verified working cosmetic UI source [skip ci]'
             git push origin HEAD:cpanel-release
           fi
