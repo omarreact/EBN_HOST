@@ -159,7 +159,7 @@ export function DirectoryList({
       </div>
 
       {/* A–Z Quick Jump Bar */}
-      <div className="sticky top-20 z-30 bg-[#0e110f]/95 backdrop-blur-md py-3 border-y border-white/10 mb-8 overflow-x-auto scrollbar-none">
+      <div className="sticky top-[68px] md:top-[84px] z-30 bg-[#0e110f]/95 backdrop-blur-md py-3 border-y border-white/10 mb-8 overflow-x-auto scrollbar-none">
         <div className="flex items-center gap-1 min-w-max">
           <button
             type="button"
@@ -307,7 +307,7 @@ export function DirectoryList({
               <section
                 key={letterKey}
                 id={`directory-section-${letterKey}`}
-                className="scroll-mt-36"
+                className="scroll-mt-28 md:scroll-mt-36"
               >
                 {/* Letter Header */}
                 <div className="flex items-center gap-4 pb-3 mb-3 border-b border-white/15">

@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
-import { Search, X, ArrowUpRight, Menu, Play, ChevronDown, Bookmark, Info, Briefcase, Shield, FileText } from "lucide-react";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { Search, X, ArrowUpRight, Menu, Play, ChevronDown } from "lucide-react";
 import { api, type Title } from "@/lib/model";
 import { Artwork } from "./artwork";
 import { read, write } from "@/lib/storage";
@@ -21,9 +21,39 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(false);
   const input = useRef<HTMLInputElement>(null);
 
+  // Focus input and lock body scrolling when search overlay opens
   useEffect(() => {
-    if (open) input.current?.focus();
+    if (open) {
+      document.body.style.overflow = "hidden";
+      const timer = setTimeout(() => {
+        input.current?.focus();
+      }, 60);
+      return () => {
+        clearTimeout(timer);
+        document.body.style.overflow = "";
+      };
+    } else {
+      document.body.style.overflow = "";
+    }
   }, [open]);
+
+  const openSearch = useCallback(() => {
+    setMenu(false);
+    const r = read<unknown>("search", []);
+    setRecent(
+      Array.isArray(r)
+        ? r.filter((x): x is string => typeof x === "string").slice(0, 8)
+        : [],
+    );
+    setOpen(true);
+  }, []);
+
+  const closeSearch = useCallback(() => {
+    setOpen(false);
+    setQ("");
+    setItems([]);
+    input.current?.blur();
+  }, []);
 
   // Global search shortcut: Pressing "/" opens search
   useEffect(() => {
@@ -36,17 +66,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open]);
-
-  function openSearch() {
-    const r = read<unknown>("search", []);
-    setRecent(
-      Array.isArray(r)
-        ? r.filter((x): x is string => typeof x === "string").slice(0, 8)
-        : [],
-    );
-    setOpen(true);
-  }
+  }, [open, openSearch]);
 
   useEffect(() => {
     if (q.trim().length < 2) return;
@@ -77,7 +97,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       "search",
       [next, ...recent.filter((x) => x !== next)].slice(0, 8),
     );
-    setOpen(false);
+    closeSearch();
     router.push("/search?q=" + encodeURIComponent(next));
   }
 
@@ -103,6 +123,16 @@ export function Shell({ children }: { children: React.ReactNode }) {
           aria-label="Main navigation"
           className={menu ? "nav-links mobile-open" : "nav-links"}
         >
+          {/* Quick search button inside mobile drawer */}
+          <button
+            type="button"
+            className="mobile-search-trigger"
+            onClick={openSearch}
+          >
+            <Search size={16} />
+            <span>Search catalogue...</span>
+          </button>
+
           <Link
             href="/"
             onClick={() => { setMenu(false); setCatOpen(false); }}
@@ -199,7 +229,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             aria-label="Search catalogue (press /)"
             className="icon-button flex items-center gap-1.5"
             onClick={openSearch}
-            title="Press / to search"
+            title="Search (press /)"
           >
             <Search size={19} />
           </button>
@@ -209,7 +239,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             aria-label="Toggle navigation"
             onClick={() => setMenu(!menu)}
           >
-            <Menu />
+            {menu ? <X size={20} /> : <Menu size={20} />}
           </button>
           <Link className="avatar" href="/my-list" aria-label="My List and Profile">
             P
@@ -270,8 +300,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
           role="dialog"
           aria-modal="true"
           aria-label="Search catalogue"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeSearch();
+          }}
           onKeyDown={(e) => {
-            if (e.key === "Escape") setOpen(false);
+            if (e.key === "Escape") closeSearch();
             if (e.key === "Tab") {
               const els = Array.from(
                 e.currentTarget.querySelectorAll<HTMLElement>("button,input,a"),
@@ -290,7 +323,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         >
           <form className="search-panel" onSubmit={submitSearch}>
             <div className="search-input">
-              <Search />
+              <Search className="search-prefix-icon" size={20} />
               <input
                 ref={input}
                 value={q}
@@ -298,7 +331,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                   setQ(e.target.value);
                   if (e.target.value.trim().length < 2) setItems([]);
                 }}
-                placeholder="Find your next story (title, actor, genre)"
+                placeholder="Search movies, series, cast..."
                 aria-label="Search titles"
                 role="combobox"
                 aria-expanded={items.length > 0}
@@ -318,30 +351,37 @@ export function Shell({ children }: { children: React.ReactNode }) {
                   if (e.key === "Enter") {
                     e.preventDefault();
                     if (active >= 0 && items[active]) {
-                      setOpen(false);
+                      closeSearch();
                       const t = items[active];
                       router.push(t.kind === "series" ? "/series/" + t.id : "/movies/" + t.id);
                     } else search();
                   }
                 }}
               />
-              <button
-                type="submit"
-                className="icon-button"
-                aria-label="Search catalogue"
-              >
-                <Search size={18} />
-              </button>
+              {q.length > 0 && (
+                <button
+                  type="button"
+                  className="search-clear-btn"
+                  aria-label="Clear search query"
+                  onClick={() => {
+                    setQ("");
+                    setItems([]);
+                    input.current?.focus();
+                  }}
+                >
+                  <X size={15} />
+                </button>
+              )}
               <button
                 type="button"
-                className="icon-button"
+                className="search-close-btn"
                 aria-label="Close search"
-                onClick={() => setOpen(false)}
+                onClick={closeSearch}
               >
-                <X />
+                Cancel
               </button>
             </div>
-            {loading && <p className="muted">Searching…</p>}
+            {loading && <p className="muted search-loading">Searching catalogue…</p>}
             <div id="suggestions" role="listbox">
               {items.map((t, i) => {
                 const targetHref = t.kind === "series" ? `/series/${t.id}` : `/movies/${t.id}`;
@@ -353,28 +393,30 @@ export function Shell({ children }: { children: React.ReactNode }) {
                     className={"suggestion " + (active === i ? "selected" : "")}
                     href={targetHref}
                     key={t.id}
-                    onClick={() => setOpen(false)}
+                    onClick={() => {
+                      closeSearch();
+                    }}
                   >
                     <Artwork src={t.poster} alt={t.title} />
-                    <div>
+                    <div className="suggestion-info">
                       <strong>{t.title}</strong>
                       <small>
-                        {t.year} · {t.kind === "series" ? "Series" : "Movie"} ·{" "}
-                        {t.category}
+                        {t.year} · {t.kind === "series" ? "Series" : "Movie"}
+                        {t.category ? ` · ${t.category}` : ""}
                       </small>
                     </div>
-                    <ArrowUpRight size={18} />
+                    <ArrowUpRight size={17} className="suggestion-arrow" />
                   </Link>
                 );
               })}
             </div>
             {q.length > 1 && (
-              <button type="button" className="text-button" onClick={() => search()}>
+              <button type="button" className="text-button search-all-results-btn" onClick={() => search()}>
                 See all results for “{q}” <ArrowUpRight size={16} />
               </button>
             )}
             {!q && (
-              <>
+              <div className="search-recents-section">
                 <p className="eyebrow">RECENT SEARCHES</p>
                 <div className="chips">
                   {recent.length ? (
@@ -396,7 +438,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                     </p>
                   )}
                 </div>
-              </>
+              </div>
             )}
           </form>
         </div>
