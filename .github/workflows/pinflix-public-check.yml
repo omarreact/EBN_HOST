@@ -29,6 +29,8 @@ jobs:
             ("PHP API health", "/api.php?action=health"),
             ("movie catalogue", "/api.php?action=catalogue&kind=movie&page=1"),
             ("TV catalogue", "/api.php?action=catalogue&kind=series&page=1"),
+            ("movie playback metadata", "/api.php?action=playback&id=movie-78597"),
+            ("series playback metadata", "/api.php?action=playback&id=series-31416&season=1&episode=1"),
           ]
           outcomes = []
           for label, path in checks:
@@ -44,12 +46,17 @@ jobs:
                 row["title"]=title.group(1).strip()[:100] if title else None
                 row["ui_css_present"]=b"cinematic-polish.css" in content
                 row["player_script_present"]=b"app.bundle.js" in content
-              if "catalogue" in label or "health" in label:
+              if "catalogue" in label or "health" in label or "playback metadata" in label:
                 try:
                   payload=json.loads(content)
                   if "health" in label:
                     row["ok"]=payload.get("ok")
                     row["service"]=payload.get("service")
+                  elif "playback metadata" in label:
+                    row["playback_status"]=payload.get("status")
+                    row["format"]=payload.get("format")
+                    media=payload.get("url","")
+                    row["media_type"]=("demo_sample" if ("test-streams.mux.dev" in media or "commondatastorage.googleapis.com" in media) else "same_origin_proxy" if media.startswith("api.php?") else "external_url" if media.startswith("http") else "no_url")
                   else:
                     items=payload.get("items", [])
                     row["items"]=len(items) if isinstance(items,list) else None
@@ -61,6 +68,12 @@ jobs:
               outcomes.append({"check":label,"status":exc.code,"url":exc.url,"error":str(exc.reason)[:150]})
             except Exception as exc:
               outcomes.append({"check":label,"error":str(exc)[:220]})
+          # HTTPS check is separate: the app is currently hosted at HTTP.
+          try:
+            with urllib.request.urlopen("https://pinflix.akogs-fashion.com/", timeout=12) as response:
+              outcomes.append({"check":"HTTPS homepage","status":response.status,"url":response.url})
+          except Exception as exc:
+            outcomes.append({"check":"HTTPS homepage","error":str(exc)[:180]})
           print(json.dumps(outcomes,indent=2,ensure_ascii=False))
           with open("pinflix-public-check.json","w") as out: json.dump(outcomes,out,indent=2)
           PY
