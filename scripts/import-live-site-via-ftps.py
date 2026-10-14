@@ -25,6 +25,10 @@ EXPECTED.update({
 EXPECTED.pop("DESIGN-ONLY-README.txt")
 
 host = os.getenv("CPANEL_FTP_HOST", "").strip()
+# The hosting server presented a verified Let\'s Encrypt certificate for this
+# canonical hostname (not the ftp.akogs-fashion.com domain alias).
+if host == "ftp.akogs-fashion.com":
+    host = "bdix10.ebnserver.com"
 user = os.getenv("CPANEL_FTP_USERNAME", "").strip()
 password = os.getenv("CPANEL_FTP_PASSWORD", "")
 directory = os.getenv("CPANEL_FTP_REMOTE_DIR", "").strip()
