@@ -16,6 +16,7 @@ import {
   Download,
   PictureInPicture2,
   Tv,
+  Settings,
 } from "lucide-react";
 import { api, type Playback, type Title } from "@/lib/model";
 import { resume, saveProgress } from "@/lib/storage";
@@ -73,6 +74,7 @@ export function Player({
   );
   const [speed, setSpeed] = useState(1);
   const [ended, setEnded] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [orientationNote, setOrientationNote] = useState("");
   const [fit, setFit] = useState<"contain" | "cover" | "fill">("contain");
   const [touchIndicator, setTouchIndicator] = useState<{
@@ -147,11 +149,28 @@ export function Player({
       if (
         video.current &&
         !video.current.paused &&
+        !settingsOpen &&
         !frame.current?.contains(document.activeElement)
       )
         setVisible(false);
     }, 3000);
   }
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    function onDocClick(e: MouseEvent) {
+      if (!(e.target as HTMLElement).closest(".player-settings-wrapper")) {
+        setSettingsOpen(false);
+      }
+    }
+    const timer = setTimeout(() => {
+      document.addEventListener("click", onDocClick);
+    }, 10);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("click", onDocClick);
+    };
+  }, [settingsOpen]);
   function persist() {
     const v = video.current;
     if (v && Number.isFinite(v.duration) && v.currentTime > 0)
@@ -233,6 +252,7 @@ export function Player({
     const onPlay = () => {
       setPlaying(true);
       setEnded(false);
+      reveal();
     };
     const onPause = () => {
       setPlaying(false);
@@ -483,17 +503,20 @@ export function Player({
         </div>
       )}
       <div className="player-top">
-        <span>
-          {title.title}
-          {episode ? ` · S${season} E${episode}` : ""}
-          {episodeTitle ? ` · ${episodeTitle}` : ""}
+        <span
+          className="player-title"
+          title={`${title.title}${episode ? ` · S${season} E${episode}` : ""}${episodeTitle ? ` · ${episodeTitle}` : ""}`}
+        >
+          <span className="title-bold">{title.title}</span>
+          {episode ? <span className="title-sub"> · S{season} E{episode}</span> : null}
+          {episodeTitle ? <span className="title-sub"> · {episodeTitle}</span> : null}
         </span>
         <button
-          className="icon-button"
+          className="player-btn player-close-btn"
           aria-label="Close player"
           onClick={onClose}
         >
-          <X />
+          <X size={18} />
         </button>
       </div>
       {busy && !error && (
@@ -508,7 +531,7 @@ export function Player({
           aria-label="Play video"
           onClick={() => void toggle()}
         >
-          <Play fill="currentColor" />
+          <Play fill="currentColor" size={26} />
         </button>
       )}
       {error && (
@@ -555,178 +578,230 @@ export function Player({
           />
         </label>
         <div className="control-row">
-          <button
-            aria-label={playing ? "Pause" : "Play"}
-            onClick={() => void toggle()}
-          >
-            {playing ? (
-              <Pause fill="currentColor" />
-            ) : (
-              <Play fill="currentColor" />
-            )}
-          </button>
-          <button aria-label="Back 10 seconds" onClick={() => seek(-10)}>
-            <RotateCcw size={19} />
-          </button>
-          <button aria-label="Forward 10 seconds" onClick={() => seek(10)}>
-            <RotateCw size={19} />
-          </button>
-          <span className="time">
-            {formatTime(time)} <i>/</i> {formatTime(duration)}
-          </span>
-          <div className="volume">
+          <div className="control-left">
             <button
-              aria-label={volume ? "Mute" : "Unmute"}
-              onClick={() => {
-                if (video.current) {
-                  video.current.muted = !video.current.muted;
-                  setVolume(
-                    video.current.muted ? 0 : video.current.volume || 1,
-                  );
-                }
-              }}
+              className="player-btn play-btn"
+              aria-label={playing ? "Pause" : "Play"}
+              onClick={() => void toggle()}
             >
-              {volume ? <Volume2 size={19} /> : <VolumeX size={19} />}
-            </button>
-            <input
-              aria-label="Volume"
-              type="range"
-              min="0"
-              max="1"
-              step="0.05"
-              value={volume}
-              onChange={(e) => {
-                const n = Number(e.target.value);
-                setVolume(n);
-                if (video.current) {
-                  video.current.volume = n;
-                  video.current.muted = n === 0;
-                }
-              }}
-            />
-          </div>
-          <div className="settings">
-            <select
-              aria-label="Playback speed"
-              value={speed}
-              onChange={(e) => {
-                setSpeed(Number(e.target.value));
-                if (video.current)
-                  video.current.playbackRate = Number(e.target.value);
-              }}
-            >
-              {[0.5, 0.75, 1, 1.25, 1.5, 2].map((n) => (
-                <option key={n} value={n}>
-                  {n}×
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="Video quality"
-              value={quality}
-              onChange={(e) => {
-                const n = Number(e.target.value);
-                setQuality(n);
-                if (engine.current && levels.length > 0) {
-                  engine.current.currentLevel = n;
-                }
-              }}
-            >
-              <option value={-1}>Auto</option>
-              {levels.length > 0 ? (
-                levels.map((l) => (
-                  <option value={l.index} key={l.index}>
-                    {l.height ? `${l.height}p` : `Quality ${l.index + 1}`}
-                  </option>
-                ))
+              {playing ? (
+                <Pause size={18} fill="currentColor" />
               ) : (
-                <>
-                  <option value={1080}>1080p</option>
-                  <option value={720}>720p</option>
-                  <option value={480}>480p</option>
-                  <option value={360}>360p</option>
-                </>
+                <Play size={18} fill="currentColor" />
               )}
-            </select>
-            {audios.length > 0 && (
-              <select
-                aria-label="Audio track"
-                value={audio}
-                onChange={(e) => {
-                  const val = Number(e.target.value);
-                  setAudio(val);
-                  if (engine.current) {
-                    engine.current.audioTrack = val;
+            </button>
+            <button
+              className="player-btn skip-btn"
+              aria-label="Back 10 seconds"
+              onClick={() => seek(-10)}
+            >
+              <RotateCcw size={17} />
+            </button>
+            <button
+              className="player-btn skip-btn"
+              aria-label="Forward 10 seconds"
+              onClick={() => seek(10)}
+            >
+              <RotateCw size={17} />
+            </button>
+            <span className="time">
+              {formatTime(time)} <i className="time-sep">/</i> {formatTime(duration)}
+            </span>
+            <div className="volume">
+              <button
+                className="player-btn volume-btn"
+                aria-label={volume ? "Mute" : "Unmute"}
+                onClick={() => {
+                  if (video.current) {
+                    video.current.muted = !video.current.muted;
+                    setVolume(
+                      video.current.muted ? 0 : video.current.volume || 1,
+                    );
                   }
-                  chooseNativeAudioTrack(video.current, val);
                 }}
               >
-                <option value={-1}>Audio: {audios[0]?.name || "Default"}</option>
-                {audios.map((a) => (
-                  <option key={a.index} value={a.index}>
-                    {a.name}
-                  </option>
-                ))}
-              </select>
-            )}
-            {captions.length > 0 && (
-              <select
-                aria-label="Subtitles"
-                value={subtitle}
+                {volume ? <Volume2 size={17} /> : <VolumeX size={17} />}
+              </button>
+              <input
+                aria-label="Volume"
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={volume}
                 onChange={(e) => {
                   const n = Number(e.target.value);
-                  setSubtitle(n);
-                  if (engine.current) {
-                    engine.current.subtitleTrack = n;
-                    engine.current.subtitleDisplay = n >= 0;
-                  } else if (video.current)
-                    Array.from(video.current.textTracks).forEach(
-                      (t, i) => (t.mode = i === n ? "showing" : "disabled"),
-                    );
+                  setVolume(n);
+                  if (video.current) {
+                    video.current.volume = n;
+                    video.current.muted = n === 0;
+                  }
+                }}
+              />
+            </div>
+          </div>
+          <div className="control-right">
+            <div
+              className="player-settings-wrapper"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                className={`player-btn settings-btn ${settingsOpen ? "active" : ""}`}
+                aria-label="Playback settings"
+                title="Settings"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSettingsOpen((prev) => !prev);
+                  reveal();
                 }}
               >
-                <option value={-1}>CC off</option>
-                {captions.map((c) => (
-                  <option key={c.index} value={c.index}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            )}
+                <Settings size={17} />
+              </button>
+              <div
+                className={`player-settings-popup ${settingsOpen ? "is-open" : ""}`}
+                role="dialog"
+                aria-label="Playback settings menu"
+              >
+                <div className="settings-popup-header">Playback Settings</div>
+                <div className="settings-row">
+                  <span className="settings-label">Speed</span>
+                  <select
+                    aria-label="Playback speed"
+                    value={speed}
+                    onChange={(e) => {
+                      setSpeed(Number(e.target.value));
+                      if (video.current)
+                        video.current.playbackRate = Number(e.target.value);
+                    }}
+                  >
+                    {[0.5, 0.75, 1, 1.25, 1.5, 2].map((n) => (
+                      <option key={n} value={n}>
+                        {n}×
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="settings-row">
+                  <span className="settings-label">Quality</span>
+                  <select
+                    aria-label="Video quality"
+                    value={quality}
+                    onChange={(e) => {
+                      const n = Number(e.target.value);
+                      setQuality(n);
+                      if (engine.current && levels.length > 0) {
+                        engine.current.currentLevel = n;
+                      }
+                    }}
+                  >
+                    <option value={-1}>Auto</option>
+                    {levels.length > 0 ? (
+                      levels.map((l) => (
+                        <option value={l.index} key={l.index}>
+                          {l.height ? `${l.height}p` : `Quality ${l.index + 1}`}
+                        </option>
+                      ))
+                    ) : (
+                      <>
+                        <option value={1080}>1080p</option>
+                        <option value={720}>720p</option>
+                        <option value={480}>480p</option>
+                        <option value={360}>360p</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+                {audios.length > 0 && (
+                  <div className="settings-row">
+                    <span className="settings-label">Audio</span>
+                    <select
+                      aria-label="Audio track"
+                      value={audio}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setAudio(val);
+                        if (engine.current) {
+                          engine.current.audioTrack = val;
+                        }
+                        chooseNativeAudioTrack(video.current, val);
+                      }}
+                    >
+                      <option value={-1}>Audio: {audios[0]?.name || "Default"}</option>
+                      {audios.map((a) => (
+                        <option key={a.index} value={a.index}>
+                          {a.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {captions.length > 0 && (
+                  <div className="settings-row">
+                    <span className="settings-label">Subtitles</span>
+                    <select
+                      aria-label="Subtitles"
+                      value={subtitle}
+                      onChange={(e) => {
+                        const n = Number(e.target.value);
+                        setSubtitle(n);
+                        if (engine.current) {
+                          engine.current.subtitleTrack = n;
+                          engine.current.subtitleDisplay = n >= 0;
+                        } else if (video.current)
+                          Array.from(video.current.textTracks).forEach(
+                            (t, i) => (t.mode = i === n ? "showing" : "disabled"),
+                          );
+                      }}
+                    >
+                      <option value={-1}>CC off</option>
+                      {captions.map((c) => (
+                        <option key={c.index} value={c.index}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+            </div>
+            <button
+              className="player-btn aspect-btn"
+              type="button"
+              aria-label={`Aspect ratio: ${fit}`}
+              title={`Fit: ${fit}`}
+              onClick={cycleFit}
+            >
+              <Tv size={17} />
+            </button>
+            <button
+              className="player-btn pip-btn"
+              type="button"
+              aria-label="Picture-in-picture"
+              title="Picture-in-picture"
+              onClick={() => void togglePiP()}
+            >
+              <PictureInPicture2 size={17} />
+            </button>
+            <a
+              className="player-btn download-btn"
+              aria-label="Download video"
+              title="Download video"
+              href={api(
+                `/download?id=${title.id}${season ? `&season=${season}` : ""}${episode ? `&episode=${episode}` : ""}`,
+              )}
+              download
+            >
+              <Download size={17} />
+            </a>
+            <button
+              className="player-btn fullscreen-btn"
+              aria-label={full ? "Exit fullscreen" : "Enter fullscreen"}
+              onClick={() => void fullscreen()}
+            >
+              {full ? <Minimize size={18} /> : <Maximize size={18} />}
+            </button>
           </div>
-          <button
-            type="button"
-            aria-label="Picture-in-picture"
-            title="Picture-in-picture"
-            onClick={() => void togglePiP()}
-          >
-            <PictureInPicture2 size={19} />
-          </button>
-          <button
-            type="button"
-            aria-label={`Aspect ratio: ${fit}`}
-            title={`Fit: ${fit}`}
-            onClick={cycleFit}
-          >
-            <Tv size={19} />
-          </button>
-          <a
-            className="icon-button"
-            aria-label="Download video"
-            title="Download video"
-            href={api(
-              `/download?id=${title.id}${season ? `&season=${season}` : ""}${episode ? `&episode=${episode}` : ""}`,
-            )}
-            download
-          >
-            <Download size={19} />
-          </a>
-          <button
-            aria-label={full ? "Exit fullscreen" : "Enter fullscreen"}
-            onClick={() => void fullscreen()}
-          >
-            {full ? <Minimize size={21} /> : <Maximize size={21} />}
-          </button>
         </div>
         {orientationNote && (
           <p className="orientation-note">{orientationNote}</p>

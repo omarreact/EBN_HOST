@@ -139,94 +139,239 @@ export function DetailView({
         </span>
       </div>
       <section
-        className="detail-hero"
+        className={`watch-theater ${t.kind === "series" ? "has-sidebar" : ""}`}
         style={{ "--accent": accent } as React.CSSProperties}
       >
-        {started && source ? (
-          <Player
-            source={source}
-            title={t}
-            season={t.kind === "series" ? season : undefined}
-            episode={t.kind === "series" ? episode : undefined}
-            episodeTitle={
-              t.kind === "series"
-                ? data.episodes.find((e) => e.number === episode)?.title
-                : undefined
-            }
-            onClose={() => setStarted(false)}
-            onRetry={() => void play()}
-            onNext={next ? () => void play(next.number) : undefined}
-          />
-        ) : (
-          <>
-            <div className="detail-art">
-              <Artwork src={t.backdrop || t.poster} alt="" priority />
-            </div>
-            <div className="hero-shade" />
-            <div className="detail-copy">
-              <p className="eyebrow">
-                {t.category ||
-                  (t.kind === "series" ? "SERIES" : "FEATURE FILM")}
-              </p>
-              <h1>{t.title}</h1>
-              <div className="detail-meta">
-                {[
-                  t.year,
-                  t.runtime,
-                  t.quality,
-                  t.rating ? "★ " + t.rating : null,
-                  t.mature ? "18+" : null,
-                ]
-                  .filter(Boolean)
-                  .map((v, i) => (
-                    <span key={i}>{v}</span>
-                  ))}
-              </div>
-              <p className="hero-synopsis">
-                {t.synopsis ||
-                  "More information about this story is currently unavailable."}
-              </p>
-              <div className="actions">
-                <button
-                  className="primary"
-                  onClick={() => void play()}
-                  disabled={busy || source?.status === "authorization_required"}
-                >
-                  {busy ? (
-                    <LoaderCircle className="spin" size={18} />
-                  ) : (
-                    <Play fill="currentColor" size={18} />
-                  )}{" "}
-                  {source?.status !== "ready"
-                    ? "Playback unavailable"
-                    : t.kind === "series"
-                      ? `Play S${season} · E${episode}`
-                      : "Play movie"}
-                </button>
-                <a
-                  className="secondary button-download"
-                  href={api(
-                    `/download?id=${t.id}${t.kind === "series" ? `&season=${season}&episode=${episode}` : ""}`,
-                  )}
-                  download
-                  title={
+        <div className="theater-grid">
+          <div className="theater-main">
+            <div className="theater-media-stage">
+              {started && source ? (
+                <Player
+                  source={source}
+                  title={t}
+                  season={t.kind === "series" ? season : undefined}
+                  episode={t.kind === "series" ? episode : undefined}
+                  episodeTitle={
                     t.kind === "series"
-                      ? `Download S${season} E${episode}`
-                      : "Download movie"
+                      ? data.episodes.find((e) => e.number === episode)?.title
+                      : undefined
                   }
-                >
-                  <Download size={18} /> Download
-                </a>
-                <SaveButton title={t} />
-              </div>
-              {note && (
-                <p className="playback-note" role="status">
-                  {note}
-                </p>
+                  onClose={() => setStarted(false)}
+                  onRetry={() => void play()}
+                  onNext={next ? () => void play(next.number) : undefined}
+                />
+              ) : (
+                <div className="theater-hero">
+                  <div className="detail-art">
+                    <Artwork src={t.backdrop || t.poster} alt="" priority />
+                  </div>
+                  <div className="hero-shade" />
+                  <div className="detail-copy">
+                    <p className="eyebrow">
+                      {t.category ||
+                        (t.kind === "series" ? "SERIES" : "FEATURE FILM")}
+                    </p>
+                    <h1>{t.title}</h1>
+                    <div className="detail-meta">
+                      {[
+                        t.year,
+                        t.runtime,
+                        t.quality,
+                        t.rating ? "★ " + t.rating : null,
+                        t.mature ? "18+" : null,
+                      ]
+                        .filter(Boolean)
+                        .map((v, i) => (
+                          <span key={i}>{v}</span>
+                        ))}
+                    </div>
+                    <p className="hero-synopsis">
+                      {t.synopsis ||
+                        "More information about this story is currently unavailable."}
+                    </p>
+                    <div className="actions">
+                      <button
+                        className="primary"
+                        onClick={() => void play()}
+                        disabled={
+                          busy || source?.status === "authorization_required"
+                        }
+                      >
+                        {busy ? (
+                          <LoaderCircle className="spin" size={18} />
+                        ) : (
+                          <Play fill="currentColor" size={18} />
+                        )}{" "}
+                        {source?.status !== "ready"
+                          ? "Playback unavailable"
+                          : t.kind === "series"
+                            ? `Play S${season} · E${episode}`
+                            : "Play movie"}
+                      </button>
+                      <a
+                        className="secondary button-download"
+                        href={api(
+                          `/download?id=${t.id}${t.kind === "series" ? `&season=${season}&episode=${episode}` : ""}`,
+                        )}
+                        download
+                        title={
+                          t.kind === "series"
+                            ? `Download S${season} E${episode}`
+                            : "Download movie"
+                        }
+                      >
+                        <Download size={18} /> Download
+                      </a>
+                      <SaveButton title={t} />
+                    </div>
+                    {note && (
+                      <p className="playback-note" role="status">
+                        {note}
+                      </p>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
-          </>
-        )}
+            {started && (
+              <div className="theater-now-playing-info">
+                <div className="now-playing-heading">
+                  <div>
+                    <p className="eyebrow">
+                      {t.kind === "series"
+                        ? `NOW PLAYING · SEASON ${season} · EPISODE ${episode}`
+                        : "NOW PLAYING"}
+                    </p>
+                    <h2>
+                      {t.kind === "series"
+                        ? data.episodes.find((e) => e.number === episode)
+                            ?.title || `Episode ${episode}`
+                        : t.title}
+                    </h2>
+                  </div>
+                  <div className="now-playing-actions">
+                    <a
+                      className="secondary button-download"
+                      href={api(
+                        `/download?id=${t.id}${t.kind === "series" ? `&season=${season}&episode=${episode}` : ""}`,
+                      )}
+                      download
+                      title={`Download ${t.kind === "series" ? `S${season} E${episode}` : "movie"}`}
+                    >
+                      <Download size={16} /> Download
+                    </a>
+                    <SaveButton title={t} />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+          {t.kind === "series" && (
+            <aside className="theater-sidebar">
+              <div className="sidebar-header">
+                <div className="sidebar-title-row">
+                  <h3>Episodes</h3>
+                  <span className="sidebar-count">
+                    {data.episodes.length} episodes
+                  </span>
+                </div>
+                <label className="sidebar-season-select">
+                  <span>Season</span>
+                  <select
+                    aria-label="Select season"
+                    value={season}
+                    onChange={(e) => void changeSeason(Number(e.target.value))}
+                  >
+                    {(t.seasons.length ? t.seasons : [season]).map((n) => (
+                      <option value={n} key={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="sidebar-playlist">
+                {data.episodes.map((e) => {
+                  const isPlaying = started && episode === e.number;
+                  const isCurrent = episode === e.number;
+                  const isWatched = watched.includes(`${season}:${e.number}`);
+                  return (
+                    <div
+                      key={e.number}
+                      className={`playlist-item ${isCurrent ? "active" : ""} ${isPlaying ? "playing" : ""}`}
+                    >
+                      <button
+                        type="button"
+                        className="playlist-item-btn"
+                        disabled={
+                          busy || source?.status === "authorization_required"
+                        }
+                        onClick={() => {
+                          setEpisode(e.number);
+                          void play(e.number);
+                        }}
+                      >
+                        <div className="playlist-thumb">
+                          <Artwork
+                            src={e.thumbnail || t.poster}
+                            alt={e.title}
+                          />
+                          {isPlaying ? (
+                            <div className="playlist-playing-overlay">
+                              <span className="playing-pulse" />
+                              <span>Playing</span>
+                            </div>
+                          ) : (
+                            <span className="playlist-play-icon">
+                              <Play fill="currentColor" size={14} />
+                            </span>
+                          )}
+                          {e.quality && (
+                            <span className="playlist-quality">
+                              {e.quality}
+                            </span>
+                          )}
+                        </div>
+                        <div className="playlist-meta">
+                          <small className="playlist-ep-label">
+                            EPISODE {String(e.number).padStart(2, "0")}
+                          </small>
+                          <h4 className="playlist-ep-title" title={e.title}>
+                            {e.title}
+                          </h4>
+                        </div>
+                        {isWatched && (
+                          <Check
+                            size={16}
+                            className="playlist-watched-icon"
+                            aria-label="Watched"
+                          />
+                        )}
+                      </button>
+                      <a
+                        className="playlist-dl-btn"
+                        href={api(
+                          `/download?id=${t.id}&season=${season}&episode=${e.number}`,
+                        )}
+                        download
+                        title={`Download S${season} E${e.number}`}
+                        aria-label={`Download S${season} E${e.number}`}
+                        onClick={(ev) => ev.stopPropagation()}
+                      >
+                        <Download size={15} />
+                      </a>
+                    </div>
+                  );
+                })}
+                {!data.episodes.length && (
+                  <div className="sidebar-empty">
+                    <p>No episodes available in this season.</p>
+                  </div>
+                )}
+              </div>
+            </aside>
+          )}
+        </div>
       </section>
       <div className="page-content">
         <div className="detail-info">
@@ -262,94 +407,6 @@ export function DetailView({
             <dd>{t.year || "Unavailable"}</dd>
           </dl>
         </div>
-        {t.kind === "series" && (
-          <section className="section">
-            <div className="section-heading">
-              <div>
-                <p className="eyebrow">THE NEXT CHAPTER</p>
-                <h2>Episodes</h2>
-              </div>
-              <label className="season-select">
-                Season{" "}
-                <select
-                  aria-label="Select season"
-                  value={season}
-                  onChange={(e) => void changeSeason(Number(e.target.value))}
-                >
-                  {(t.seasons.length ? t.seasons : [season]).map((n) => (
-                    <option value={n} key={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <div className="episodes">
-              {data.episodes.map((e) => (
-                <div
-                  key={e.number}
-                  className={
-                    "episode " + (episode === e.number ? "active" : "")
-                  }
-                >
-                  <button
-                    type="button"
-                    className="episode-btn"
-                    disabled={
-                      busy || source?.status === "authorization_required"
-                    }
-                    onClick={() => {
-                      setEpisode(e.number);
-                      void play(e.number);
-                      document
-                        .querySelector(".detail-hero")
-                        ?.scrollIntoView({
-                          behavior: "smooth",
-                          block: "center",
-                        });
-                    }}
-                  >
-                    <div className="episode-art">
-                      <Artwork src={e.thumbnail || t.poster} alt={e.title} />
-                      <span>
-                        <Play fill="currentColor" size={20} />
-                      </span>
-                    </div>
-                    <div className="episode-copy">
-                      <small>
-                        EPISODE {String(e.number).padStart(2, "0")}
-                        {e.quality ? " · " + e.quality : ""}
-                      </small>
-                      <h3>{e.title}</h3>
-                    </div>
-                    {watched.includes(`${season}:${e.number}`) ? (
-                      <Check size={19} aria-label="Watched" />
-                    ) : (
-                      <ChevronRight size={19} />
-                    )}
-                  </button>
-                  <a
-                    className="episode-download"
-                    href={api(
-                      `/download?id=${t.id}&season=${season}&episode=${e.number}`,
-                    )}
-                    download
-                    title={`Download S${season} E${e.number}`}
-                    aria-label={`Download S${season} E${e.number}`}
-                    onClick={(ev) => ev.stopPropagation()}
-                  >
-                    <Download size={18} />
-                  </a>
-                </div>
-              ))}
-            </div>
-            {!data.episodes.length && (
-              <div className="empty">
-                <p>No episodes are available in this season.</p>
-              </div>
-            )}
-          </section>
-        )}
         <Row
           kicker="KEEP EXPLORING"
           title="More stories for you"
