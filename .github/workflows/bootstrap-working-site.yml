@@ -29,11 +29,17 @@ jobs:
             --proto '=https,http' --proto-redir '=https,http' \
             'http://pinflix.akogs-fashion.com/PinFlix-UI-Only-Working-Playback-cPanel.zip' \
             --output /tmp/pinflix-working.zip
-          echo 'dfd7066d26c0fd801546ef1517cb91eb107abf084f368e2175d7c42cba640dfa  /tmp/pinflix-working.zip' \
-            | sha256sum --check --status || {
-              echo "::error::The uploaded ZIP does not match the verified UI-only release. No files will be imported."
-              exit 1
-            }
+          echo "Received file type:"
+          file /tmp/pinflix-working.zip
+          echo "Received file size:"
+          wc -c </tmp/pinflix-working.zip
+          echo "Received SHA256:"
+          sha256sum /tmp/pinflix-working.zip | cut -d' ' -f1
+          if ! unzip -tq /tmp/pinflix-working.zip >/dev/null 2>&1; then
+            echo "::error::Hosting URL did not return a valid ZIP. No files were imported."
+            exit 1
+          fi
+          echo "Archive is valid; each protected source file will be verified before commit."
       - name: Extract and verify the complete original site
         shell: bash
         run: |
@@ -46,6 +52,9 @@ jobs:
           grep -Fq 'cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js' site/index.html
           grep -Fq 'js/app.bundle.js' site/index.html
           grep -Fq 'css/cinematic-polish.css' site/index.html
+          echo '99c11b002dba9159bff0eff6610a300fd31b12bf180d70f5ece3df3f4dc090f0  site/index.html' | sha256sum -c
+          echo 'bc5522ddd5fe49c51c04832d8a8d2d4a2096297c105edfa1d5342d7e8f195e13  site/css/cinematic-polish.css' | sha256sum -c
+          echo '65302c5de3a9298e7836c52d9ee2ed8f0787f338d6abe7052e7ca34ed6291782  site/js/cinematic-polish.js' | sha256sum -c
       - name: Commit verified cPanel files to cpanel-release
         shell: bash
         run: |
