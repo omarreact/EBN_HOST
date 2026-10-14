@@ -1,4 +1,4 @@
-import { Library } from "@/components/library";
+import { redirect } from "next/navigation";
 export default function Page() {
-  return <Library />;
+  redirect("/my-list/");
 }

@@ -13,20 +13,31 @@ import {
   LoaderCircle,
   X,
   SkipForward,
-  Download,
+  PanelBottom,
+  Minimize2,
+  Expand,
+  SkipBack,
   PictureInPicture2,
   Tv,
-  Settings,
 } from "lucide-react";
-import { api, type Playback, type Title } from "@/lib/model";
+import { type Playback, type Title } from "@/lib/model";
 import { resume, saveProgress } from "@/lib/storage";
 import { formatTime, mediaError, clampSeek } from "@/lib/player";
+import { read } from "@/lib/storage";
+import { defaultPreferences, PreferencesSchema } from "@/lib/preferences";
 
 // Native audio tracks are browser-specific; keep DOM mutations in an event helper.
-function chooseNativeAudioTrack(element: HTMLVideoElement | null, selected: number) {
-  const tracks = (element as (HTMLVideoElement & {
-    audioTracks?: ArrayLike<{ enabled: boolean }>;
-  }) | null)?.audioTracks;
+function chooseNativeAudioTrack(
+  element: HTMLVideoElement | null,
+  selected: number,
+) {
+  const tracks = (
+    element as
+      | (HTMLVideoElement & {
+          audioTracks?: ArrayLike<{ enabled: boolean }>;
+        })
+      | null
+  )?.audioTracks;
   if (!tracks?.length) return;
   for (let i = 0; i < tracks.length; i++) {
     tracks[i].enabled = i === (selected < 0 ? 0 : selected);
@@ -41,6 +52,12 @@ export function Player({
   onClose,
   onRetry,
   onNext,
+  onPrevious,
+  onMinimize,
+  onExpand,
+  onTheater,
+  mini = false,
+  theater = false,
 }: {
   source: Playback;
   title: Title;
@@ -50,12 +67,23 @@ export function Player({
   onClose: () => void;
   onRetry: () => void;
   onNext?: () => void;
+  onPrevious?: () => void;
+  onMinimize?: () => void;
+  onExpand?: () => void;
+  onTheater?: () => void;
+  mini?: boolean;
+  theater?: boolean;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const frame = useRef<HTMLDivElement>(null);
   const engine = useRef<Hls | null>(null);
   const idle = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSaved = useRef(0);
+  const lastVolume = useRef(1);
+  const nextCallback = useRef(onNext);
+  useEffect(() => {
+    nextCallback.current = onNext;
+  }, [onNext]);
   const [playing, setPlaying] = useState(false);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
@@ -74,8 +102,8 @@ export function Player({
   );
   const [speed, setSpeed] = useState(1);
   const [ended, setEnded] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [orientationNote, setOrientationNote] = useState("");
+  const [preview, setPreview] = useState<number | null>(null);
   const [fit, setFit] = useState<"contain" | "cover" | "fill">("contain");
   const [touchIndicator, setTouchIndicator] = useState<{
     text: string;
@@ -149,28 +177,16 @@ export function Player({
       if (
         video.current &&
         !video.current.paused &&
-        !settingsOpen &&
-        !frame.current?.contains(document.activeElement)
+        !(
+          frame.current?.contains(document.activeElement) &&
+          (document.activeElement as HTMLElement)?.closest(
+            "button,input,select",
+          )
+        )
       )
         setVisible(false);
     }, 3000);
   }
-
-  useEffect(() => {
-    if (!settingsOpen) return;
-    function onDocClick(e: MouseEvent) {
-      if (!(e.target as HTMLElement).closest(".player-settings-wrapper")) {
-        setSettingsOpen(false);
-      }
-    }
-    const timer = setTimeout(() => {
-      document.addEventListener("click", onDocClick);
-    }, 10);
-    return () => {
-      clearTimeout(timer);
-      document.removeEventListener("click", onDocClick);
-    };
-  }, [settingsOpen]);
   function persist() {
     const v = video.current;
     if (v && Number.isFinite(v.duration) && v.currentTime > 0)
@@ -196,12 +212,21 @@ export function Player({
     setEnded(false);
     setTime(0);
     setDuration(0);
+    setPlaying(false);
+    setVisible(true);
+    lastSaved.current = 0;
     setLevels([]);
     setAudios([]);
     setCaptions([]);
     setQuality(-1);
     setSubtitle(-1);
     setAudio(-1);
+    const parsedPreferences = PreferencesSchema.safeParse(
+      read("preferences", defaultPreferences),
+    );
+    const preferences = parsedPreferences.success
+      ? parsedPreferences.data
+      : defaultPreferences;
     const attempt = () =>
       v.play().catch(() => {
         if (!disposed) {
@@ -211,6 +236,7 @@ export function Player({
       });
     const metadata = () => {
       setDuration(v.duration);
+      v.playbackRate = speed;
       const entry = resume(title, season, episode);
       if (entry && entry.position > 5 && entry.position < v.duration - 10)
         v.currentTime = entry.position;
@@ -220,25 +246,22 @@ export function Player({
           index: i,
         })),
       );
-      const nativeAudioTracks = (v as unknown as { audioTracks?: { label?: string; language?: string }[] }).audioTracks;
+      const nativeAudioTracks = (
+        v as unknown as {
+          audioTracks?: { label?: string; language?: string }[];
+        }
+      ).audioTracks;
       if (nativeAudioTracks && nativeAudioTracks.length > 1) {
         setAudios(
           Array.from(nativeAudioTracks).map((t, i) => ({
-            name: t.label || t.language || (i === 0 ? "Hindi (Dubbed)" : i === 1 ? "English (Original)" : `Audio ${i + 1}`),
+            name: t.label || t.language || `Audio ${i + 1}`,
             index: i,
           })),
         );
-      } else {
-        const isDual =
-          title.category?.toLowerCase().includes("dual") ||
-          title.title?.toLowerCase().includes("dual") ||
-          title.title?.toLowerCase().includes("hindi & english");
-        if (isDual) {
-          setAudios([
-            { name: "Hindi (Dubbed)", index: 0 },
-            { name: "English (Original)", index: 1 },
-          ]);
-        }
+      }
+      if (preferences.captions && v.textTracks.length) {
+        v.textTracks[0].mode = "showing";
+        setSubtitle(0);
       }
       attempt();
     };
@@ -253,9 +276,13 @@ export function Player({
       setPlaying(true);
       setEnded(false);
       reveal();
+      if ("mediaSession" in navigator)
+        navigator.mediaSession.playbackState = "playing";
     };
     const onPause = () => {
       setPlaying(false);
+      if ("mediaSession" in navigator)
+        navigator.mediaSession.playbackState = "paused";
       setVisible(true);
       persist();
     };
@@ -269,6 +296,7 @@ export function Player({
       setEnded(true);
       setPlaying(false);
       persist();
+      if (preferences.autoplay) nextCallback.current?.();
     };
     const listeners: [string, EventListener][] = [
       ["loadedmetadata", metadata],
@@ -300,13 +328,22 @@ export function Player({
         h.loadSource(source.url);
         h.on(Hls.Events.MANIFEST_PARSED, () => {
           if (h.levels && h.levels.length > 0) {
-            setLevels(h.levels.map((l, i) => ({ height: l.height || 1080, index: i })));
+            setLevels(
+              h.levels.map((l, i) => ({ height: l.height || 0, index: i })),
+            );
+            if (preferences.quality === "data-saver")
+              h.autoLevelCapping = Math.max(
+                0,
+                h.levels.findLastIndex((l) => l.height <= 480),
+              );
           }
           attempt();
         });
         h.on(Hls.Events.LEVEL_LOADED, () => {
           if (h.levels && h.levels.length > 0) {
-            setLevels(h.levels.map((l, i) => ({ height: l.height || 1080, index: i })));
+            setLevels(
+              h.levels.map((l, i) => ({ height: l.height || 0, index: i })),
+            );
           }
         });
         h.on(Hls.Events.AUDIO_TRACKS_UPDATED, (_, d) =>
@@ -376,6 +413,67 @@ export function Player({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source.url, title.id, season, episode]);
   /* eslint-enable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (!("mediaSession" in navigator) || typeof MediaMetadata === "undefined")
+      return;
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: title.title,
+      artist: "PinFlix",
+      album: episode ? `Season ${season} · Episode ${episode}` : "",
+    });
+    const actions: [MediaSessionAction, MediaSessionActionHandler][] = [
+      [
+        "play",
+        () => {
+          void video.current?.play();
+        },
+      ],
+      ["pause", () => video.current?.pause()],
+      [
+        "seekbackward",
+        (d) => {
+          if (video.current)
+            video.current.currentTime = clampSeek(
+              video.current.currentTime - (d.seekOffset || 10),
+              video.current.duration,
+            );
+        },
+      ],
+      [
+        "seekforward",
+        (d) => {
+          if (video.current)
+            video.current.currentTime = clampSeek(
+              video.current.currentTime + (d.seekOffset || 10),
+              video.current.duration,
+            );
+        },
+      ],
+      [
+        "seekto",
+        (d) => {
+          if (video.current && typeof d.seekTime === "number")
+            video.current.currentTime = clampSeek(
+              d.seekTime,
+              video.current.duration,
+            );
+        },
+      ],
+    ];
+    for (const [name, handler] of actions) {
+      try {
+        navigator.mediaSession.setActionHandler(name, handler);
+      } catch {}
+    }
+    return () => {
+      for (const [name] of actions) {
+        try {
+          navigator.mediaSession.setActionHandler(name, null);
+        } catch {}
+      }
+      navigator.mediaSession.metadata = null;
+    };
+  }, [title.title, season, episode]);
   async function toggle() {
     const v = video.current;
     if (!v) return;
@@ -386,6 +484,20 @@ export function Player({
         setError("Your browser could not start playback. Please retry.");
       }
     } else v.pause();
+    reveal();
+  }
+  function toggleMute() {
+    const v = video.current;
+    if (!v) return;
+    if (v.muted || v.volume === 0) {
+      v.muted = false;
+      if (v.volume === 0) v.volume = lastVolume.current || 1;
+      setVolume(v.volume);
+    } else {
+      lastVolume.current = v.volume;
+      v.muted = true;
+      setVolume(0);
+    }
     reveal();
   }
   function seek(delta: number) {
@@ -423,7 +535,9 @@ export function Player({
   }
   return (
     <div
-      className={"player " + (!visible ? "controls-idle" : "")}
+      className={
+        "player " + (mini ? "is-mini " : "") + (!visible ? "controls-idle" : "")
+      }
       ref={frame}
       tabIndex={0}
       aria-label={"Video player for " + title.title}
@@ -433,8 +547,8 @@ export function Player({
       onTouchEnd={handleTouchEnd}
       onClick={(e) => {
         if (e.timeStamp - lastTouchTime.current < 450) return;
-        const tag = (e.target as HTMLElement).tagName;
-        if (["INPUT", "SELECT", "BUTTON", "A"].includes(tag)) return;
+        if ((e.target as HTMLElement).closest("input,select,button,a,label"))
+          return;
         if (!visible) {
           reveal();
         } else {
@@ -471,10 +585,7 @@ export function Player({
             setVolume(video.current.volume);
           }
         }
-        if (e.key.toLowerCase() === "m" && video.current) {
-          video.current.muted = !video.current.muted;
-          setVolume(video.current.muted ? 0 : video.current.volume);
-        }
+        if (e.key.toLowerCase() === "m") toggleMute();
         if (e.key === "Escape" && document.fullscreenElement)
           void document.exitFullscreen();
       }}
@@ -503,20 +614,24 @@ export function Player({
         </div>
       )}
       <div className="player-top">
-        <span
-          className="player-title"
-          title={`${title.title}${episode ? ` · S${season} E${episode}` : ""}${episodeTitle ? ` · ${episodeTitle}` : ""}`}
-        >
-          <span className="title-bold">{title.title}</span>
-          {episode ? <span className="title-sub"> · S{season} E{episode}</span> : null}
-          {episodeTitle ? <span className="title-sub"> · {episodeTitle}</span> : null}
+        <span>
+          {title.title}
+          {episode ? ` · S${season} E${episode}` : ""}
+          {episodeTitle ? ` · ${episodeTitle}` : ""}
         </span>
         <button
-          className="player-btn player-close-btn"
+          className="icon-button"
+          aria-label={mini ? "Expand player" : "Minimize player"}
+          onClick={mini ? onExpand : onMinimize}
+        >
+          {mini ? <Expand size={18} /> : <Minimize2 size={18} />}
+        </button>
+        <button
+          className="icon-button"
           aria-label="Close player"
           onClick={onClose}
         >
-          <X size={18} />
+          <X />
         </button>
       </div>
       {busy && !error && (
@@ -531,7 +646,7 @@ export function Player({
           aria-label="Play video"
           onClick={() => void toggle()}
         >
-          <Play fill="currentColor" size={26} />
+          <Play fill="currentColor" />
         </button>
       )}
       {error && (
@@ -562,7 +677,22 @@ export function Player({
         </div>
       )}
       <div className="player-controls">
-        <label className="seek">
+        <label
+          className="seek"
+          onPointerMove={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setPreview(
+              Math.max(
+                0,
+                Math.min(duration, ((e.clientX - r.left) / r.width) * duration),
+              ),
+            );
+          }}
+          onPointerLeave={() => setPreview(null)}
+        >
+          {preview !== null && Number.isFinite(preview) && (
+            <span className="seek-preview">{formatTime(preview)}</span>
+          )}
           <span className="sr-only">Seek video</span>
           <input
             type="range"
@@ -578,230 +708,182 @@ export function Player({
           />
         </label>
         <div className="control-row">
-          <div className="control-left">
+          <button
+            aria-label={playing ? "Pause" : "Play"}
+            onClick={() => void toggle()}
+          >
+            {playing ? (
+              <Pause fill="currentColor" />
+            ) : (
+              <Play fill="currentColor" />
+            )}
+          </button>
+          <button aria-label="Back 10 seconds" onClick={() => seek(-10)}>
+            <RotateCcw size={19} />
+          </button>
+          <button aria-label="Forward 10 seconds" onClick={() => seek(10)}>
+            <RotateCw size={19} />
+          </button>
+          <span className="time">
+            {formatTime(time)} <i>/</i> {formatTime(duration)}
+          </span>
+          <div className="volume">
             <button
-              className="player-btn play-btn"
-              aria-label={playing ? "Pause" : "Play"}
-              onClick={() => void toggle()}
+              aria-label={volume ? "Mute" : "Unmute"}
+              onClick={() => {
+                toggleMute();
+              }}
             >
-              {playing ? (
-                <Pause size={18} fill="currentColor" />
-              ) : (
-                <Play size={18} fill="currentColor" />
-              )}
+              {volume ? <Volume2 size={19} /> : <VolumeX size={19} />}
             </button>
-            <button
-              className="player-btn skip-btn"
-              aria-label="Back 10 seconds"
-              onClick={() => seek(-10)}
+            <input
+              aria-label="Volume"
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={volume}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                setVolume(n);
+                if (n > 0) lastVolume.current = n;
+                if (video.current) {
+                  video.current.volume = n;
+                  video.current.muted = n === 0;
+                }
+              }}
+            />
+          </div>
+          <div className="settings">
+            <select
+              aria-label="Playback speed"
+              value={speed}
+              onChange={(e) => {
+                setSpeed(Number(e.target.value));
+                if (video.current)
+                  video.current.playbackRate = Number(e.target.value);
+              }}
             >
-              <RotateCcw size={17} />
-            </button>
-            <button
-              className="player-btn skip-btn"
-              aria-label="Forward 10 seconds"
-              onClick={() => seek(10)}
+              {[0.5, 0.75, 1, 1.25, 1.5, 2].map((n) => (
+                <option key={n} value={n}>
+                  {n}×
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Video quality"
+              disabled={!levels.length}
+              value={quality}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                setQuality(n);
+                if (engine.current && levels.length > 0) {
+                  engine.current.currentLevel = n;
+                }
+              }}
             >
-              <RotateCw size={17} />
-            </button>
-            <span className="time">
-              {formatTime(time)} <i className="time-sep">/</i> {formatTime(duration)}
-            </span>
-            <div className="volume">
-              <button
-                className="player-btn volume-btn"
-                aria-label={volume ? "Mute" : "Unmute"}
-                onClick={() => {
-                  if (video.current) {
-                    video.current.muted = !video.current.muted;
-                    setVolume(
-                      video.current.muted ? 0 : video.current.volume || 1,
-                    );
+              <option value={-1}>
+                {levels.length ? "Auto" : "Source quality"}
+              </option>
+              {levels.map((l) => (
+                <option value={l.index} key={l.index}>
+                  {l.height ? `${l.height}p` : `Source ${l.index + 1}`}
+                </option>
+              ))}
+            </select>
+            {audios.length > 0 && (
+              <select
+                aria-label="Audio track"
+                value={audio}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  setAudio(val);
+                  if (engine.current) {
+                    engine.current.audioTrack = val;
                   }
+                  chooseNativeAudioTrack(video.current, val);
                 }}
               >
-                {volume ? <Volume2 size={17} /> : <VolumeX size={17} />}
-              </button>
-              <input
-                aria-label="Volume"
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
-                value={volume}
+                <option value={-1}>
+                  Audio: {audios[0]?.name || "Default"}
+                </option>
+                {audios.map((a) => (
+                  <option key={a.index} value={a.index}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            )}
+            {captions.length > 0 && (
+              <select
+                aria-label="Subtitles"
+                value={subtitle}
                 onChange={(e) => {
                   const n = Number(e.target.value);
-                  setVolume(n);
-                  if (video.current) {
-                    video.current.volume = n;
-                    video.current.muted = n === 0;
-                  }
-                }}
-              />
-            </div>
-          </div>
-          <div className="control-right">
-            <div
-              className="player-settings-wrapper"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <button
-                type="button"
-                className={`player-btn settings-btn ${settingsOpen ? "active" : ""}`}
-                aria-label="Playback settings"
-                title="Settings"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSettingsOpen((prev) => !prev);
-                  reveal();
+                  setSubtitle(n);
+                  if (engine.current) {
+                    engine.current.subtitleTrack = n;
+                    engine.current.subtitleDisplay = n >= 0;
+                  } else if (video.current)
+                    Array.from(video.current.textTracks).forEach(
+                      (t, i) => (t.mode = i === n ? "showing" : "disabled"),
+                    );
                 }}
               >
-                <Settings size={17} />
-              </button>
-              <div
-                className={`player-settings-popup ${settingsOpen ? "is-open" : ""}`}
-                role="dialog"
-                aria-label="Playback settings menu"
-              >
-                <div className="settings-popup-header">Playback Settings</div>
-                <div className="settings-row">
-                  <span className="settings-label">Speed</span>
-                  <select
-                    aria-label="Playback speed"
-                    value={speed}
-                    onChange={(e) => {
-                      setSpeed(Number(e.target.value));
-                      if (video.current)
-                        video.current.playbackRate = Number(e.target.value);
-                    }}
-                  >
-                    {[0.5, 0.75, 1, 1.25, 1.5, 2].map((n) => (
-                      <option key={n} value={n}>
-                        {n}×
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="settings-row">
-                  <span className="settings-label">Quality</span>
-                  <select
-                    aria-label="Video quality"
-                    value={quality}
-                    onChange={(e) => {
-                      const n = Number(e.target.value);
-                      setQuality(n);
-                      if (engine.current && levels.length > 0) {
-                        engine.current.currentLevel = n;
-                      }
-                    }}
-                  >
-                    <option value={-1}>Auto</option>
-                    {levels.length > 0 ? (
-                      levels.map((l) => (
-                        <option value={l.index} key={l.index}>
-                          {l.height ? `${l.height}p` : `Quality ${l.index + 1}`}
-                        </option>
-                      ))
-                    ) : (
-                      <>
-                        <option value={1080}>1080p</option>
-                        <option value={720}>720p</option>
-                        <option value={480}>480p</option>
-                        <option value={360}>360p</option>
-                      </>
-                    )}
-                  </select>
-                </div>
-                {audios.length > 0 && (
-                  <div className="settings-row">
-                    <span className="settings-label">Audio</span>
-                    <select
-                      aria-label="Audio track"
-                      value={audio}
-                      onChange={(e) => {
-                        const val = Number(e.target.value);
-                        setAudio(val);
-                        if (engine.current) {
-                          engine.current.audioTrack = val;
-                        }
-                        chooseNativeAudioTrack(video.current, val);
-                      }}
-                    >
-                      <option value={-1}>Audio: {audios[0]?.name || "Default"}</option>
-                      {audios.map((a) => (
-                        <option key={a.index} value={a.index}>
-                          {a.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                {captions.length > 0 && (
-                  <div className="settings-row">
-                    <span className="settings-label">Subtitles</span>
-                    <select
-                      aria-label="Subtitles"
-                      value={subtitle}
-                      onChange={(e) => {
-                        const n = Number(e.target.value);
-                        setSubtitle(n);
-                        if (engine.current) {
-                          engine.current.subtitleTrack = n;
-                          engine.current.subtitleDisplay = n >= 0;
-                        } else if (video.current)
-                          Array.from(video.current.textTracks).forEach(
-                            (t, i) => (t.mode = i === n ? "showing" : "disabled"),
-                          );
-                      }}
-                    >
-                      <option value={-1}>CC off</option>
-                      {captions.map((c) => (
-                        <option key={c.index} value={c.index}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-              </div>
-            </div>
-            <button
-              className="player-btn aspect-btn"
-              type="button"
-              aria-label={`Aspect ratio: ${fit}`}
-              title={`Fit: ${fit}`}
-              onClick={cycleFit}
-            >
-              <Tv size={17} />
-            </button>
-            <button
-              className="player-btn pip-btn"
-              type="button"
-              aria-label="Picture-in-picture"
-              title="Picture-in-picture"
-              onClick={() => void togglePiP()}
-            >
-              <PictureInPicture2 size={17} />
-            </button>
-            <a
-              className="player-btn download-btn"
-              aria-label="Download video"
-              title="Download video"
-              href={api(
-                `/download?id=${title.id}${season ? `&season=${season}` : ""}${episode ? `&episode=${episode}` : ""}`,
-              )}
-              download
-            >
-              <Download size={17} />
-            </a>
-            <button
-              className="player-btn fullscreen-btn"
-              aria-label={full ? "Exit fullscreen" : "Enter fullscreen"}
-              onClick={() => void fullscreen()}
-            >
-              {full ? <Minimize size={18} /> : <Maximize size={18} />}
-            </button>
+                <option value={-1}>CC off</option>
+                {captions.map((c) => (
+                  <option key={c.index} value={c.index}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
+          <button
+            type="button"
+            disabled={
+              typeof document !== "undefined" &&
+              !document.pictureInPictureEnabled
+            }
+            aria-label="Picture-in-picture"
+            title="Picture-in-picture"
+            onClick={() => void togglePiP()}
+          >
+            <PictureInPicture2 size={19} />
+          </button>
+          <button
+            type="button"
+            aria-label={`Aspect ratio: ${fit}`}
+            title={`Fit: ${fit}`}
+            onClick={cycleFit}
+          >
+            <Tv size={19} />
+          </button>
+          {!mini && (
+            <button
+              aria-label={theater ? "Exit theater mode" : "Theater mode"}
+              title="Theater mode"
+              onClick={onTheater}
+            >
+              <PanelBottom size={19} />
+            </button>
+          )}
+          {onPrevious && (
+            <button aria-label="Previous episode" onClick={onPrevious}>
+              <SkipBack size={19} />
+            </button>
+          )}
+          {onNext && (
+            <button aria-label="Next episode" onClick={onNext}>
+              <SkipForward size={19} />
+            </button>
+          )}
+          <button
+            aria-label={full ? "Exit fullscreen" : "Enter fullscreen"}
+            onClick={() => void fullscreen()}
+          >
+            {full ? <Minimize size={21} /> : <Maximize size={21} />}
+          </button>
         </div>
         {orientationNote && (
           <p className="orientation-note">{orientationNote}</p>

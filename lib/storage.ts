@@ -1,14 +1,7 @@
 "use client";
 import { z } from "zod";
 import { TitleSchema, type Title } from "./model";
-const Entry = z.object({
-  title: TitleSchema,
-  position: z.number().min(0),
-  duration: z.number().min(0),
-  season: z.number().optional(),
-  episode: z.number().optional(),
-  updatedAt: z.number(),
-});
+import { ProgressSchema as Entry } from "./library-model";
 export type Progress = z.infer<typeof Entry>;
 const key = "pinflix:v1:";
 export function read<T>(name: string, fallback: T): T {
@@ -60,9 +53,16 @@ export function saveProgress(entry: Progress) {
 }
 export function removeSaved(titleId: string) {
   const all = saved();
-  write("list", all.filter((t) => t.id !== titleId));
+  write(
+    "list",
+    all.filter((t) => t.id !== titleId),
+  );
 }
-export function removeProgress(titleId: string, season?: number, episode?: number) {
+export function removeProgress(
+  titleId: string,
+  season?: number,
+  episode?: number,
+) {
   const all = history();
   write(
     "history",

@@ -1,126 +1,155 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
-  Play,
-  LoaderCircle,
+  ArrowUpRight,
   Check,
   ChevronRight,
   Download,
+  LoaderCircle,
+  Play,
+  Film,
 } from "lucide-react";
 import { api, type Detail, type Playback } from "@/lib/model";
+import { history, type Progress } from "@/lib/storage";
 import { Artwork } from "./artwork";
 import { SaveButton, useAccent } from "./hero";
-import dynamic from "next/dynamic";
-const Player = dynamic(() => import("./player").then((m) => m.Player), {
-  ssr: false,
-  loading: () => (
-    <div className="player">
-      <div className="player-center">Loading player…</div>
-    </div>
-  ),
-});
 import { Row } from "./cards";
-import { history } from "@/lib/storage";
+import { PlaybackSlot, usePlayback } from "./playback-context";
 export function DetailView({
   initial,
   initialPlayback,
+  initialEpisode,
+  resumeRequested = false,
 }: {
   initial: Detail;
   initialPlayback: Playback;
+  initialEpisode?: number;
+  resumeRequested?: boolean;
 }) {
   const [data, setData] = useState(initial);
   const [season, setSeason] = useState(initial.season);
-  const [episode, setEpisode] = useState(initial.episodes[0]?.number || 1);
-  const [source, setSource] = useState<Playback | null>(initialPlayback);
-  const [started, setStarted] = useState(false);
+  const [episode, setEpisode] = useState(initialEpisode || 0);
+  const [source, setSource] = useState(initialPlayback);
   const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState(
-    initialPlayback.status === "ready" ? "" : initialPlayback.message,
-  );
-  const [watched, setWatched] = useState<string[]>([]);
+  const [note, setNote] = useState("");
+  const [progress, setProgress] = useState<Progress[]>([]);
   const [gate, setGate] = useState(!initial.title.mature);
-  const accent = useAccent(data.title.poster);
-  // Hydrate device-local progress after SSR; no provider requests depend on it.
-  /* eslint-disable react-hooks/set-state-in-effect */
+  const requests = useRef(0);
+  const abort = useRef<AbortController | null>(null);
+  const { session, open, minimized, close } = usePlayback();
+  const t = data.title;
+  const accent = useAccent(t.poster);
+  const latest = progress.find(
+    (p) =>
+      p.season === season &&
+      p.position > 5 &&
+      p.duration > 0 &&
+      p.position / p.duration < 0.95,
+  );
+  const effectiveEpisode =
+    episode ||
+    (latest?.episode && data.episodes.some((e) => e.number === latest.episode)
+      ? latest.episode
+      : data.episodes[0]?.number || 1);
+  const same = session?.title.id === t.id;
+  const selectedEpisode = same
+    ? session.episode || effectiveEpisode
+    : effectiveEpisode;
+  const currentSeason = same ? session.season || season : season;
   useEffect(() => {
-    const entries = history().filter((e) => e.title.id === initial.title.id);
-    setWatched(
-      entries
-        .filter((e) => e.duration && e.position / e.duration > 0.95)
-        .map((e) => `${e.season}:${e.episode}`),
-    );
-    const last = entries[0];
-    if (
-      last &&
-      initial.title.kind === "series" &&
-      last.season === initial.season &&
-      initial.episodes.some((e) => e.number === last.episode)
-    )
-      setEpisode(last.episode!);
-  }, [initial]);
-  /* eslint-enable react-hooks/set-state-in-effect */
-  async function play(ep = episode) {
+    const state = requests;
+    const sync = () =>
+      setProgress(history().filter((e) => e.title.id === initial.title.id));
+    sync();
+    window.addEventListener("pinflix-storage", sync);
+    return () => {
+      window.removeEventListener("pinflix-storage", sync);
+      abort.current?.abort();
+      state.current++;
+    };
+  }, [initial.title.id]);
+  async function play(ep = effectiveEpisode) {
+    const version = ++requests.current;
+    abort.current?.abort();
+    const controller = new AbortController();
+    abort.current = controller;
     setEpisode(ep);
     setBusy(true);
     setNote("");
-    setStarted(false);
     try {
       const r = await fetch(
         api(
           "/playback?" +
             new URLSearchParams({
-              id: data.title.id,
+              id: t.id,
               season: String(season),
               episode: String(ep),
             }),
         ),
+        { signal: controller.signal },
       );
       if (!r.ok) throw new Error();
-      const p: Playback = await r.json();
-      setSource(p);
-      if (p.status === "ready") setStarted(true);
-      else setNote(p.message);
+      const pb: Playback = await r.json();
+      if (version !== requests.current || controller.signal.aborted) return;
+      setSource(pb);
+      if (pb.status === "ready" && pb.url) {
+        open({
+          title: t,
+          source: pb,
+          season: t.kind === "series" ? season : undefined,
+          episode: t.kind === "series" ? ep : undefined,
+          episodes: data.episodes,
+        });
+      } else setNote(pb.message || "Playback is unavailable for this title.");
     } catch {
-      setNote("Playback is temporarily unavailable. Please try again later.");
+      if (!controller.signal.aborted)
+        setNote("Playback could not connect. Please try again.");
     } finally {
-      setBusy(false);
+      if (version === requests.current) setBusy(false);
     }
   }
   async function changeSeason(n: number) {
+    const version = ++requests.current;
+    abort.current?.abort();
+    const controller = new AbortController();
+    abort.current = controller;
     setSeason(n);
-    setStarted(false);
-    setSource(null);
     setBusy(true);
     setNote("");
+    if (same) close();
     try {
       const r = await fetch(
-        api(
-          "/detail?" +
-            new URLSearchParams({ id: data.title.id, season: String(n) }),
-        ),
+        api("/detail?" + new URLSearchParams({ id: t.id, season: String(n) })),
+        { signal: controller.signal },
       );
       if (!r.ok) throw new Error();
-      const next: Detail = await r.json();
-      setData(next);
-      setEpisode(next.episodes[0]?.number || 1);
+      const d: Detail = await r.json();
+      if (version !== requests.current) return;
+      setData(d);
+      setEpisode(d.episodes[0]?.number || 1);
     } catch {
-      setNote("This season could not be loaded. Please try again.");
+      if (!controller.signal.aborted) {
+        setSeason(data.season);
+        setNote("This season could not be loaded. Please try again.");
+      }
     } finally {
-      setBusy(false);
+      if (version === requests.current) setBusy(false);
     }
   }
-  const next = data.episodes.find((e) => e.number > episode);
-  const t = data.title;
+  const entry = progress.find(
+    (e) =>
+      e.season === (t.kind === "series" ? season : undefined) &&
+      e.episode === (t.kind === "series" ? effectiveEpisode : undefined),
+  );
+  const canResume =
+    entry && entry.position > 5 && entry.position / entry.duration < 0.95;
   if (!gate)
     return (
-      <div className="empty error-page">
+      <div className="page-content empty error-page">
         <h1>Mature content</h1>
-        <p>
-          This title is intended for adults. Continue only if you meet your
-          local age requirement.
-        </p>
+        <p>Continue only if you meet the local age requirement.</p>
         <button className="primary" onClick={() => setGate(true)}>
           I meet the age requirement
         </button>
@@ -129,9 +158,9 @@ export function DetailView({
     );
   return (
     <>
-      <div className="detail-heading">
-        <Link href={t.kind === "series" ? "/series" : "/movies"}>
-          <ArrowLeft size={17} /> Back to{" "}
+      <div className="detail-heading page-content">
+        <Link href={t.kind === "series" ? "/series/" : "/movies/"}>
+          <ArrowLeft size={16} /> Back to{" "}
           {t.kind === "series" ? "series" : "movies"}
         </Link>
         <span>
@@ -139,255 +168,112 @@ export function DetailView({
         </span>
       </div>
       <section
-        className={`watch-theater ${t.kind === "series" ? "has-sidebar" : ""}`}
+        className={`detail-hero ${same ? "has-playback" : ""}`}
         style={{ "--accent": accent } as React.CSSProperties}
       >
-        <div className="theater-grid">
-          <div className="theater-main">
-            <div className="theater-media-stage">
-              {started && source ? (
-                <Player
-                  source={source}
-                  title={t}
-                  season={t.kind === "series" ? season : undefined}
-                  episode={t.kind === "series" ? episode : undefined}
-                  episodeTitle={
-                    t.kind === "series"
-                      ? data.episodes.find((e) => e.number === episode)?.title
-                      : undefined
-                  }
-                  onClose={() => setStarted(false)}
-                  onRetry={() => void play()}
-                  onNext={next ? () => void play(next.number) : undefined}
-                />
-              ) : (
-                <div className="theater-hero">
-                  <div className="detail-art">
-                    <Artwork src={t.backdrop || t.poster} alt="" priority />
-                  </div>
-                  <div className="hero-shade" />
-                  <div className="detail-copy">
-                    <p className="eyebrow">
-                      {t.category ||
-                        (t.kind === "series" ? "SERIES" : "FEATURE FILM")}
-                    </p>
-                    <h1>{t.title}</h1>
-                    <div className="detail-meta">
-                      {[
-                        t.year,
-                        t.runtime,
-                        t.quality,
-                        t.rating ? "★ " + t.rating : null,
-                        t.mature ? "18+" : null,
-                      ]
-                        .filter(Boolean)
-                        .map((v, i) => (
-                          <span key={i}>{v}</span>
-                        ))}
-                    </div>
-                    <p className="hero-synopsis">
-                      {t.synopsis ||
-                        "More information about this story is currently unavailable."}
-                    </p>
-                    <div className="actions">
-                      <button
-                        className="primary"
-                        onClick={() => void play()}
-                        disabled={
-                          busy || source?.status === "authorization_required"
-                        }
-                      >
-                        {busy ? (
-                          <LoaderCircle className="spin" size={18} />
-                        ) : (
-                          <Play fill="currentColor" size={18} />
-                        )}{" "}
-                        {source?.status !== "ready"
-                          ? "Playback unavailable"
-                          : t.kind === "series"
-                            ? `Play S${season} · E${episode}`
-                            : "Play movie"}
-                      </button>
-                      <a
-                        className="secondary button-download"
-                        href={api(
-                          `/download?id=${t.id}${t.kind === "series" ? `&season=${season}&episode=${episode}` : ""}`,
-                        )}
-                        download
-                        title={
-                          t.kind === "series"
-                            ? `Download S${season} E${episode}`
-                            : "Download movie"
-                        }
-                      >
-                        <Download size={18} /> Download
-                      </a>
-                      <SaveButton title={t} />
-                    </div>
-                    {note && (
-                      <p className="playback-note" role="status">
-                        {note}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-            {started && (
-              <div className="theater-now-playing-info">
-                <div className="now-playing-heading">
-                  <div>
-                    <p className="eyebrow">
-                      {t.kind === "series"
-                        ? `NOW PLAYING · SEASON ${season} · EPISODE ${episode}`
-                        : "NOW PLAYING"}
-                    </p>
-                    <h2>
-                      {t.kind === "series"
-                        ? data.episodes.find((e) => e.number === episode)
-                            ?.title || `Episode ${episode}`
-                        : t.title}
-                    </h2>
-                  </div>
-                  <div className="now-playing-actions">
-                    <a
-                      className="secondary button-download"
-                      href={api(
-                        `/download?id=${t.id}${t.kind === "series" ? `&season=${season}&episode=${episode}` : ""}`,
-                      )}
-                      download
-                      title={`Download ${t.kind === "series" ? `S${season} E${episode}` : "movie"}`}
-                    >
-                      <Download size={16} /> Download
-                    </a>
-                    <SaveButton title={t} />
-                  </div>
-                </div>
+        {same ? (
+          <>
+            <PlaybackSlot />
+            {minimized && (
+              <div className="minimized-placeholder">
+                <Film size={32} />
+                <h2>Your story is still playing.</h2>
+                <p>Use the mini-player to expand or close playback.</p>
               </div>
             )}
-          </div>
-          {t.kind === "series" && (
-            <aside className="theater-sidebar">
-              <div className="sidebar-header">
-                <div className="sidebar-title-row">
-                  <h3>Episodes</h3>
-                  <span className="sidebar-count">
-                    {data.episodes.length} episodes
-                  </span>
-                </div>
-                <label className="sidebar-season-select">
-                  <span>Season</span>
-                  <select
-                    aria-label="Select season"
-                    value={season}
-                    onChange={(e) => void changeSeason(Number(e.target.value))}
-                  >
-                    {(t.seasons.length ? t.seasons : [season]).map((n) => (
-                      <option value={n} key={n}>
-                        {n}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+          </>
+        ) : (
+          <>
+            <div className="detail-art">
+              <Artwork src={t.backdrop || t.poster} alt="" priority />
+            </div>
+            <div className="hero-shade" />
+            <div className="detail-copy">
+              <p className="eyebrow">
+                {t.kind === "series" ? "TV SERIES" : "FEATURE FILM"}
+                {t.category ? ` / ${t.category}` : ""}
+              </p>
+              <h1>{t.title}</h1>
+              <div className="detail-meta">
+                {[
+                  t.year,
+                  t.runtime,
+                  t.quality,
+                  t.rating ? `★ ${t.rating}` : null,
+                  ...t.genres.slice(0, 2),
+                ]
+                  .filter(Boolean)
+                  .map((v, i) => (
+                    <span key={i}>{v}</span>
+                  ))}
               </div>
-              <div className="sidebar-playlist">
-                {data.episodes.map((e) => {
-                  const isPlaying = started && episode === e.number;
-                  const isCurrent = episode === e.number;
-                  const isWatched = watched.includes(`${season}:${e.number}`);
-                  return (
-                    <div
-                      key={e.number}
-                      className={`playlist-item ${isCurrent ? "active" : ""} ${isPlaying ? "playing" : ""}`}
-                    >
-                      <button
-                        type="button"
-                        className="playlist-item-btn"
-                        disabled={
-                          busy || source?.status === "authorization_required"
-                        }
-                        onClick={() => {
-                          setEpisode(e.number);
-                          void play(e.number);
-                        }}
-                      >
-                        <div className="playlist-thumb">
-                          <Artwork
-                            src={e.thumbnail || t.poster}
-                            alt={e.title}
-                          />
-                          {isPlaying ? (
-                            <div className="playlist-playing-overlay">
-                              <span className="playing-pulse" />
-                              <span>Playing</span>
-                            </div>
-                          ) : (
-                            <span className="playlist-play-icon">
-                              <Play fill="currentColor" size={14} />
-                            </span>
-                          )}
-                          {e.quality && (
-                            <span className="playlist-quality">
-                              {e.quality}
-                            </span>
-                          )}
-                        </div>
-                        <div className="playlist-meta">
-                          <small className="playlist-ep-label">
-                            EPISODE {String(e.number).padStart(2, "0")}
-                          </small>
-                          <h4 className="playlist-ep-title" title={e.title}>
-                            {e.title}
-                          </h4>
-                        </div>
-                        {isWatched && (
-                          <Check
-                            size={16}
-                            className="playlist-watched-icon"
-                            aria-label="Watched"
-                          />
-                        )}
-                      </button>
-                      <a
-                        className="playlist-dl-btn"
-                        href={api(
-                          `/download?id=${t.id}&season=${season}&episode=${e.number}`,
-                        )}
-                        download
-                        title={`Download S${season} E${e.number}`}
-                        aria-label={`Download S${season} E${e.number}`}
-                        onClick={(ev) => ev.stopPropagation()}
-                      >
-                        <Download size={15} />
-                      </a>
-                    </div>
-                  );
-                })}
-                {!data.episodes.length && (
-                  <div className="sidebar-empty">
-                    <p>No episodes available in this season.</p>
-                  </div>
+              <p className="hero-synopsis">
+                {t.synopsis ||
+                  "Explore this story from the PinFlix collection. Save it to your list and return when you’re ready."}
+              </p>
+              <div className="actions">
+                <button
+                  className="primary"
+                  disabled={busy || source.status !== "ready"}
+                  onClick={() => void play()}
+                >
+                  {busy ? (
+                    <LoaderCircle size={18} className="spin" />
+                  ) : (
+                    <Play size={17} fill="currentColor" />
+                  )}
+                  {source.status !== "ready"
+                    ? "Playback unavailable"
+                    : canResume || resumeRequested
+                      ? "Resume watching"
+                      : t.kind === "series"
+                        ? `Play S${season} · E${effectiveEpisode}`
+                        : "Play movie"}
+                </button>
+                <SaveButton title={t} />
+                {source.status === "ready" && source.download && (
+                  <a className="secondary" href={source.download.url} download>
+                    <Download size={17} /> Download
+                    {source.download.quality
+                      ? ` · ${source.download.quality}`
+                      : ""}
+                  </a>
                 )}
               </div>
-            </aside>
-          )}
-        </div>
+              {source.status !== "ready" && (
+                <p className="playback-note" role="status">
+                  {source.message || "Streaming is unavailable for this title."}
+                </p>
+              )}
+              {note && (
+                <p className="playback-note" role="alert">
+                  {note}
+                </p>
+              )}
+            </div>
+          </>
+        )}
       </section>
       <div className="page-content">
         <div className="detail-info">
+          <div className="detail-poster">
+            <Artwork src={t.poster} alt={t.title} />
+          </div>
           <div>
             <p className="eyebrow">THE STORY</p>
             <h2>
               {t.kind === "series"
                 ? "A world to return to."
-                : "Take a closer look."}
+                : "More than a movie."}
             </h2>
-            <p>{t.synopsis || "No synopsis is available for this title."}</p>
+            <p>
+              {t.synopsis || "A synopsis has not been supplied for this title."}
+            </p>
           </div>
           <dl>
             {t.genres.length > 0 && (
               <>
-                <dt>Genres</dt>
+                <dt>Genre</dt>
                 <dd>{t.genres.join(", ")}</dd>
               </>
             )}
@@ -399,20 +285,151 @@ export function DetailView({
             )}
             {t.language && (
               <>
-                <dt>Collection language</dt>
+                <dt>Language</dt>
                 <dd>{t.language}</dd>
               </>
             )}
-            <dt>Year</dt>
-            <dd>{t.year || "Unavailable"}</dd>
+            {t.year && (
+              <>
+                <dt>Released</dt>
+                <dd>{t.year}</dd>
+              </>
+            )}
+            {t.seasons.length > 0 && (
+              <>
+                <dt>Seasons</dt>
+                <dd>{t.seasons.length}</dd>
+              </>
+            )}
+            {t.seriesStatus && (
+              <>
+                <dt>Status</dt>
+                <dd>
+                  {t.seriesStatus === "ongoing" ? "Ongoing" : "Completed"}
+                </dd>
+              </>
+            )}
           </dl>
         </div>
+        {t.kind === "series" && (
+          <section className="section episode-section">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">YOUR NEXT CHAPTER</p>
+                <h2>
+                  Episodes{" "}
+                  <span className="muted">
+                    / {String(data.episodes.length).padStart(2, "0")}
+                  </span>
+                </h2>
+              </div>
+              <label className="season-select">
+                Season{" "}
+                <select
+                  aria-label="Select season"
+                  value={season}
+                  disabled={busy}
+                  onChange={(e) => void changeSeason(Number(e.target.value))}
+                >
+                  {(t.seasons.length ? t.seasons : [season]).map((n) => (
+                    <option key={n} value={n}>
+                      Season {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            {note && (
+              <div className="notice" role="status">
+                {note}
+              </div>
+            )}
+            <div className="episodes" aria-busy={busy}>
+              {data.episodes.map((e) => {
+                const p = progress.find(
+                  (p) => p.season === season && p.episode === e.number,
+                );
+                const watched =
+                  !!p && p.duration > 0 && p.position / p.duration >= 0.95;
+                const selected =
+                  currentSeason === season && selectedEpisode === e.number;
+                return (
+                  <article
+                    key={e.number}
+                    className={`episode ${selected ? "active" : ""}`}
+                  >
+                    <span className="episode-number">
+                      {String(e.number).padStart(2, "0")}
+                    </span>
+                    <div className="episode-art">
+                      <Artwork src={e.thumbnail || t.poster} alt="" />
+                      {p && p.duration > 0 && (
+                        <span className="progress-line">
+                          <i
+                            style={{
+                              width: `${Math.min(100, (p.position / p.duration) * 100)}%`,
+                            }}
+                          />
+                        </span>
+                      )}
+                    </div>
+                    <div className="episode-copy">
+                      <small>
+                        SEASON {season} · EPISODE {e.number}
+                        {e.quality ? ` · ${e.quality}` : ""}
+                      </small>
+                      <h3>{e.title}</h3>
+                      {e.synopsis && <p>{e.synopsis}</p>}
+                      {e.runtime && <p>{e.runtime}</p>}
+                      <span className="episode-state">
+                        {watched ? (
+                          <>
+                            <Check size={12} /> Watched
+                          </>
+                        ) : p ? (
+                          `${Math.ceil((p.duration - p.position) / 60)} min left`
+                        ) : selected ? (
+                          "Selected episode"
+                        ) : (
+                          ""
+                        )}
+                      </span>
+                    </div>
+                    <button
+                      className="episode-action"
+                      aria-label={`${source.status === "ready" ? "Play" : "Select"} episode ${e.number}`}
+                      disabled={busy}
+                      onClick={() => {
+                        setEpisode(e.number);
+                        if (source.status === "ready") void play(e.number);
+                      }}
+                    >
+                      {source.status === "ready" ? (
+                        <Play size={19} fill="currentColor" />
+                      ) : (
+                        <ChevronRight size={19} />
+                      )}
+                    </button>
+                  </article>
+                );
+              })}
+            </div>
+            {!data.episodes.length && (
+              <div className="empty compact">
+                <p>No episodes are listed for this season.</p>
+              </div>
+            )}
+          </section>
+        )}
         <Row
-          kicker="KEEP EXPLORING"
-          title="More stories for you"
+          kicker="YOUR NEXT GOOD FIND"
+          title="You may also like"
           items={data.related}
           href={t.kind === "series" ? "/series" : "/movies"}
         />
+        <Link href="/my-list" className="text-button">
+          Make room in your list <ArrowUpRight size={16} />
+        </Link>
       </div>
     </>
   );

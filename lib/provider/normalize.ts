@@ -190,8 +190,34 @@ export function searchFromJson(json: unknown): Title[] {
     }),
   );
 }
-const SeriesMoreSchema=z.array(z.object({id:z.number().int().positive(),title:z.string(),year:z.string().nullable().optional(),poster:z.string().nullable().optional(),imdb_rating:z.string().nullable().optional(),category:z.string().optional()}));
-export function seriesMoreFromJson(json:unknown):Title[]{return dedupe(SeriesMoreSchema.parse(json).map(x=>TitleSchema.parse({id:`series-${x.id}`,providerId:String(x.id),kind:'series',title:x.title,poster:imageUrl(x.poster),year:Number(x.year)||null,category:x.category||'',language:language(x.category||''),rating:x.imdb_rating||null,mature:isMature(x.category||'')})));}
+const SeriesMoreSchema = z.array(
+  z.object({
+    id: z.number().int().positive(),
+    title: z.string(),
+    year: z.string().nullable().optional(),
+    poster: z.string().nullable().optional(),
+    imdb_rating: z.string().nullable().optional(),
+    category: z.string().optional(),
+  }),
+);
+export function seriesMoreFromJson(json: unknown): Title[] {
+  return dedupe(
+    SeriesMoreSchema.parse(json).map((x) =>
+      TitleSchema.parse({
+        id: `series-${x.id}`,
+        providerId: String(x.id),
+        kind: "series",
+        title: x.title,
+        poster: imageUrl(x.poster),
+        year: Number(x.year) || null,
+        category: x.category || "",
+        language: language(x.category || ""),
+        rating: x.imdb_rating || null,
+        mature: isMature(x.category || ""),
+      }),
+    ),
+  );
+}
 export function detailFromHtml(
   html: string,
   id: string,
@@ -281,9 +307,7 @@ export function detailFromHtml(
     season,
   };
 }
-export function sourceFromHtml(
-  html: string,
-): {
+export function sourceFromHtml(html: string): {
   url: string;
   format: "mp4" | "hls";
   subtitles: { url: string; label: string; language: string }[];

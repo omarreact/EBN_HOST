@@ -1,21 +1,24 @@
 import { catalogue } from "@/lib/provider";
 import { Browse } from "@/components/browse";
+import { providerQuery, QuerySchema } from "@/lib/catalogue-query";
 export const dynamic = "force-dynamic";
-export default async function Search({
+export const metadata = { title: "Search" };
+export default async function Page({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const p = await searchParams;
+  const filters = QuerySchema.parse({ sort: "recent", ...p });
+  const kind =
+    p.kind === "movie" ? "movie" : p.kind === "series" ? "series" : "";
+  const data = await catalogue(providerQuery(filters, kind || undefined));
   return (
     <Browse
       key={JSON.stringify(p)}
-      initialQuery={p.q || ""}
-      initialYear={p.year || ""}
-      initial={await catalogue({
-        q: p.q,
-        year: p.year ? Number(p.year) : undefined,
-      })}
+      initial={data}
+      initialFilters={filters}
+      initialKind={kind}
     />
   );
 }

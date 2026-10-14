@@ -1,397 +1,414 @@
 "use client";
-
-import { useState, useMemo, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Search, X, SlidersHorizontal, ArrowUpDown, Film, Tv, Play, Plus, Check } from "lucide-react";
-import type { Catalogue, Title } from "@/lib/model";
-import { saved, toggleSave } from "@/lib/storage";
-
-interface DirectoryListProps {
-  initial: Catalogue;
-  kind: "movie" | "series";
-  initialCategory?: string;
-  initialYear?: string;
-}
-
-const ALPHABET = ["#", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z"];
-
+import {
+  ArrowUpRight,
+  ChevronLeft,
+  ChevronRight,
+  Film,
+  Search,
+  SlidersHorizontal,
+  Tv,
+  X,
+} from "lucide-react";
+import { api, type Catalogue } from "@/lib/model";
+import { alphabet, titleLetter } from "@/lib/directory";
+import {
+  QuerySchema,
+  queryParams,
+  type CatalogueFilters,
+} from "@/lib/catalogue-query";
+import { SaveButton } from "./hero";
+import { titleHref } from "@/lib/curation";
 export function DirectoryList({
   initial,
   kind,
-  initialCategory = "",
-  initialYear = "",
-}: DirectoryListProps) {
-  const [search, setSearch] = useState("");
-  const [selectedLetter, setSelectedLetter] = useState<string | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState(initialCategory);
-  const [selectedYear, setSelectedYear] = useState(initialYear);
-  const [selectedQuality, setSelectedQuality] = useState("");
-  const [sortBy, setSortBy] = useState<"title-asc" | "title-desc" | "year-desc" | "year-asc">("title-asc");
-
-  const [savedIds, setSavedIds] = useState<Set<string>>(() => new Set(saved().map((t) => t.id)));
-
-  const handleToggleSave = (e: React.MouseEvent, title: Title) => {
-    e.preventDefault();
-    e.stopPropagation();
-    toggleSave(title);
-    setSavedIds(new Set(saved().map((t) => t.id)));
-  };
-
-  // Derive unique years and qualities from initial items
-  const { categories, years, qualities } = useMemo(() => {
-    const cats = new Set<string>();
-    const yrs = new Set<number>();
-    const quals = new Set<string>();
-
-    initial.items.forEach((item) => {
-      if (item.category) cats.add(item.category);
-      if (item.year) yrs.add(item.year);
-      if (item.quality) quals.add(item.quality);
-    });
-
-    return {
-      categories: Array.from(cats).sort(),
-      years: Array.from(yrs).sort((a, b) => b - a),
-      qualities: Array.from(quals).sort(),
-    };
-  }, [initial.items]);
-
-  // Filter items based on user criteria
-  const filteredItems = useMemo(() => {
-    let items = initial.items.filter((t) => (kind === "movie" ? t.kind !== "series" : t.kind === "series"));
-
-    if (search.trim()) {
-      const q = search.toLowerCase().trim();
-      items = items.filter((t) =>
-        t.title.toLowerCase().includes(q) ||
-        (t.category && t.category.toLowerCase().includes(q)) ||
-        (t.language && t.language.toLowerCase().includes(q)),
+  initialFilters,
+}: {
+  initial: Catalogue;
+  kind: "movie" | "series";
+  initialFilters: CatalogueFilters;
+}) {
+  const [data, setData] = useState(initial);
+  const [filters, setFilters] = useState(initialFilters);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [advanced, setAdvanced] = useState(false);
+  const [revision, setRevision] = useState(0);
+  const first = useRef(true);
+  const version = useRef(0);
+  const update = (key: keyof CatalogueFilters, value: string | number) =>
+    setFilters((f) => ({
+      ...f,
+      [key]: value,
+      ...(key !== "page" ? { page: 1 } : {}),
+    }));
+  useEffect(() => {
+    const pop = () =>
+      setFilters(
+        QuerySchema.parse(
+          Object.fromEntries(new URLSearchParams(location.search)),
+        ),
       );
+    window.addEventListener("popstate", pop);
+    return () => window.removeEventListener("popstate", pop);
+  }, []);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
     }
-
-    if (selectedCategory) {
-      items = items.filter((t) => t.category === selectedCategory);
-    }
-
-    if (selectedYear) {
-      items = items.filter((t) => String(t.year) === selectedYear);
-    }
-
-    if (selectedQuality) {
-      items = items.filter((t) => t.quality === selectedQuality);
-    }
-
-    if (selectedLetter) {
-      if (selectedLetter === "#") {
-        items = items.filter((t) => /^[^a-zA-Z]/.test(t.title.trim()));
-      } else {
-        items = items.filter((t) => t.title.trim().toUpperCase().startsWith(selectedLetter));
-      }
-    }
-
-    // Sort items
-    return items.sort((a, b) => {
-      if (sortBy === "title-asc") {
-        return a.title.localeCompare(b.title);
-      }
-      if (sortBy === "title-desc") {
-        return b.title.localeCompare(a.title);
-      }
-      if (sortBy === "year-desc") {
-        return (b.year || 0) - (a.year || 0);
-      }
-      if (sortBy === "year-asc") {
-        return (a.year || 0) - (b.year || 0);
-      }
-      return 0;
-    });
-  }, [initial.items, kind, search, selectedCategory, selectedYear, selectedQuality, selectedLetter, sortBy]);
-
-  // Group items by First Letter (A-Z, #) for directory view
-  const groupedItems = useMemo(() => {
-    const groups: Record<string, Title[]> = {};
-
-    filteredItems.forEach((item) => {
-      const firstChar = item.title.trim()[0]?.toUpperCase() || "#";
-      const key = /[A-Z]/.test(firstChar) ? firstChar : "#";
-      if (!groups[key]) groups[key] = [];
-      groups[key].push(item);
-    });
-
-    return groups;
-  }, [filteredItems]);
-
-  const activeGroupKeys = useMemo(() => {
-    return Object.keys(groupedItems).sort((a, b) => {
-      if (a === "#") return -1;
-      if (b === "#") return 1;
-      return a.localeCompare(b);
-    });
-  }, [groupedItems]);
-
-  const clearFilters = () => {
-    setSearch("");
-    setSelectedLetter(null);
-    setSelectedCategory("");
-    setSelectedYear("");
-    setSelectedQuality("");
-    setSortBy("title-asc");
+    const current = ++version.current;
+    const controller = new AbortController();
+    const timer = setTimeout(
+      async () => {
+        setBusy(true);
+        setError("");
+        const p = queryParams(filters, kind);
+        p.set("directory", "true");
+        const url = new URL(location.href);
+        const visible = queryParams(filters);
+        url.search = visible.toString();
+        window.history.replaceState(window.history.state, "", url);
+        try {
+          const r = await fetch(api("/catalogue?" + p), {
+            signal: controller.signal,
+          });
+          if (!r.ok) throw new Error();
+          const next: Catalogue = await r.json();
+          if (current === version.current && !controller.signal.aborted)
+            setData(next);
+        } catch {
+          if (!controller.signal.aborted)
+            setError("We couldn’t load this selection. Please try again.");
+        } finally {
+          if (!controller.signal.aborted) setBusy(false);
+        }
+      },
+      filters.q !== initialFilters.q ? 250 : 80,
+    );
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [filters, kind, revision, initialFilters.q]);
+  const facet = data.facets || {
+    genres: [],
+    languages: [],
+    qualities: [],
+    countries: [],
   };
-
-  const isFiltering = !!(search || selectedLetter || selectedCategory || selectedYear || selectedQuality);
-
+  const categories = data.categories.filter(
+    (c) => c.kind === kind && !c.mature,
+  );
+  const reset = () => setFilters(QuerySchema.parse({}));
+  const active = Object.entries(filters).filter(
+    ([k, v]) => v !== "" && k !== "page" && k !== "sort",
+  );
+  const grouped = filters.sort === "title" || filters.sort === "title-desc";
+  const groups = new Map<string, typeof data.items>();
+  for (const t of data.items) {
+    const letter = grouped ? titleLetter(t.title) : "results";
+    groups.set(letter, [...(groups.get(letter) || []), t]);
+  }
+  function select(
+    key: keyof CatalogueFilters,
+    label: string,
+    values: string[],
+    disabled = false,
+  ) {
+    return (
+      <label className="filter-field">
+        <span>{label}</span>
+        <select
+          value={String(filters[key])}
+          aria-label={label}
+          disabled={disabled}
+          onChange={(e) => update(key, e.target.value)}
+        >
+          <option value="">All {label.toLowerCase()}</option>
+          {[
+            ...new Set([
+              ...values,
+              ...(filters[key] ? [String(filters[key])] : []),
+            ]),
+          ].map((v) => (
+            <option key={v} value={v}>
+              {v}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  }
   return (
-    <div className="w-full max-w-7xl mx-auto px-6 sm:px-10 py-12">
-      {/* Directory Header */}
-      <div className="border-b border-white/10 pb-8 mb-8">
-        <div className="flex items-center gap-3 text-xs tracking-widest text-[#88b596] font-semibold uppercase mb-2">
-          {kind === "movie" ? <Film size={16} /> : <Tv size={16} />}
-          <span>{kind === "movie" ? "FILM DIRECTORY" : "TELEVISION DIRECTORY"}</span>
-          <span>•</span>
-          <span className="text-white/60">{filteredItems.length} Available Titles</span>
-        </div>
-        <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-white">
-          {kind === "movie" ? "Movies A–Z" : "TV Series A–Z"}
-        </h1>
-        <p className="text-sm text-[#9aa296] mt-2 max-w-2xl">
-          Clean, text-first alphabetical directory for rapid discovery and direct streaming.
+    <div className="page-content directory-page">
+      <div className="page-title">
+        <p className="eyebrow">
+          {kind === "movie" ? <Film size={14} /> : <Tv size={14} />} THE PINFLIX
+          COLLECTION
         </p>
+        <h1>
+          {kind === "movie" ? "Movies" : "TV Series"}
+          <span className="title-period">.</span>
+        </h1>
+        <p>Less scrolling. More discovering. Every title, A to Z.</p>
       </div>
-
-      {/* A–Z Quick Jump Bar */}
-      <div className="sticky top-[68px] md:top-[84px] z-30 bg-[#0e110f]/95 backdrop-blur-md py-3 border-y border-white/10 mb-8 overflow-x-auto scrollbar-none">
-        <div className="flex items-center gap-1 min-w-max">
-          <button
-            type="button"
-            onClick={() => setSelectedLetter(null)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold tracking-wider transition-all cursor-pointer ${
-              selectedLetter === null
-                ? "bg-white text-black shadow"
-                : "text-white/70 hover:text-white hover:bg-white/10"
-            }`}
-          >
-            ALL
-          </button>
-          {ALPHABET.map((char) => {
-            const hasItems = char === "#" ? !!groupedItems["#"] : !!groupedItems[char];
-            const isSelected = selectedLetter === char;
-            return (
-              <button
-                key={char}
-                type="button"
-                onClick={() => setSelectedLetter(isSelected ? null : char)}
-                disabled={!hasItems && !isSelected}
-                className={`w-8 h-8 rounded-lg text-xs font-semibold flex items-center justify-center transition-all cursor-pointer ${
-                  isSelected
-                    ? "bg-white text-black shadow scale-105"
-                    : hasItems
-                    ? "text-white/90 hover:text-white hover:bg-white/10"
-                    : "text-white/20 cursor-not-allowed"
-                }`}
-              >
-                {char}
-              </button>
-            );
-          })}
-        </div>
+      <div className="directory-topline">
+        <span>
+          {data.total ?? data.items.length} indexed{" "}
+          {kind === "movie" ? "movies" : "series"}
+        </span>
+        <span>
+          Find your kind of story <ArrowUpRight size={14} />
+        </span>
       </div>
-
-      {/* Live Search & Filter Controls */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-4 mb-8">
-        {/* Live Search */}
-        <div className="md:col-span-5 relative">
-          <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/40" />
+      <div className="directory-controls">
+        <label className="directory-search">
+          <Search size={20} />
           <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={`Search ${kind === "movie" ? "movies" : "series"} by title or genre...`}
-            className="w-full bg-white/5 border border-white/15 focus:border-white/40 rounded-xl pl-10 pr-10 py-2.5 text-sm text-white placeholder-white/40 outline-none transition-all"
+            aria-label={`Search ${kind === "movie" ? "movies" : "series"}`}
+            placeholder={`Search ${kind === "movie" ? "movies" : "series"} by title…`}
+            value={filters.q}
+            maxLength={120}
+            onChange={(e) => update("q", e.target.value)}
           />
-          {search && (
-            <button
-              type="button"
-              onClick={() => setSearch("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white"
-            >
-              <X size={16} />
+          {filters.q && (
+            <button aria-label="Clear search" onClick={() => update("q", "")}>
+              <X size={18} />
             </button>
           )}
-        </div>
-
-        {/* Filters */}
-        <div className="md:col-span-7 flex flex-wrap items-center gap-2.5">
-          {/* Category */}
-          <select
-            value={selectedCategory}
-            onChange={(e) => setSelectedCategory(e.target.value)}
-            className="bg-white/5 border border-white/15 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-white/40 cursor-pointer"
-          >
-            <option value="" className="bg-[#121513]">All Genres</option>
-            {categories.map((c) => (
-              <option key={c} value={c} className="bg-[#121513]">{c}</option>
-            ))}
-          </select>
-
-          {/* Year */}
-          <select
-            value={selectedYear}
-            onChange={(e) => setSelectedYear(e.target.value)}
-            className="bg-white/5 border border-white/15 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-white/40 cursor-pointer"
-          >
-            <option value="" className="bg-[#121513]">All Years</option>
-            {years.map((y) => (
-              <option key={y} value={String(y)} className="bg-[#121513]">{y}</option>
-            ))}
-          </select>
-
-          {/* Quality */}
-          {qualities.length > 0 && (
-            <select
-              value={selectedQuality}
-              onChange={(e) => setSelectedQuality(e.target.value)}
-              className="bg-white/5 border border-white/15 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-white/40 cursor-pointer"
-            >
-              <option value="" className="bg-[#121513]">All Qualities</option>
-              {qualities.map((q) => (
-                <option key={q} value={q} className="bg-[#121513]">{q}</option>
-              ))}
-            </select>
+        </label>
+        <button
+          className={`secondary filter-toggle ${advanced ? "selected" : ""}`}
+          aria-expanded={advanced}
+          aria-controls="advanced-filters"
+          onClick={() => setAdvanced((v) => !v)}
+        >
+          <SlidersHorizontal size={17} /> Filters{" "}
+          {active.length > 0 && (
+            <span className="count-badge">{active.length}</span>
           )}
-
-          {/* Sort */}
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as any)}
-            className="bg-white/5 border border-white/15 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-white/40 cursor-pointer"
-          >
-            <option value="title-asc" className="bg-[#121513]">Title (A–Z)</option>
-            <option value="title-desc" className="bg-[#121513]">Title (Z–A)</option>
-            <option value="year-desc" className="bg-[#121513]">Release Year (Newest)</option>
-            <option value="year-asc" className="bg-[#121513]">Release Year (Oldest)</option>
-          </select>
-
-          {/* Reset Filters */}
-          {isFiltering && (
-            <button
-              type="button"
-              onClick={clearFilters}
-              className="px-3 py-2 rounded-xl text-xs font-medium text-[#c8d9b8] hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-            >
-              Reset
-            </button>
-          )}
-        </div>
+        </button>
       </div>
-
-      {/* Directory Listings - Clean Text-First Layout */}
-      {filteredItems.length === 0 ? (
-        <div className="py-20 text-center rounded-2xl bg-white/5 border border-white/10">
-          <p className="text-base text-white/80 font-medium mb-2">No matching titles found.</p>
-          <p className="text-xs text-white/50 mb-4">Try clearing or adjusting your search filters.</p>
-          <button
-            type="button"
-            onClick={clearFilters}
-            className="px-4 py-2 rounded-xl bg-white text-black text-xs font-semibold hover:bg-white/90"
+      <div className="directory-filter-row">
+        {select(
+          "category",
+          "Collections",
+          categories.map((c) => c.name),
+        )}
+        {select("year", "Years", data.years.map(String))}
+        <label className="filter-field">
+          <span>Sort by</span>
+          <select
+            aria-label="Sort titles"
+            value={filters.sort}
+            onChange={(e) => update("sort", e.target.value)}
           >
-            Clear All Filters
+            <option value="title">Title A–Z</option>
+            <option value="title-desc">Title Z–A</option>
+            <option value="year">Newest first</option>
+            <option value="year-asc">Oldest first</option>
+            <option value="recent">Recently added</option>
+          </select>
+        </label>
+        <span className="filter-row-spacer" />
+        {active.length > 0 && (
+          <button className="text-button" onClick={reset}>
+            <X size={14} /> Reset filters
+          </button>
+        )}
+      </div>
+      {advanced && (
+        <div className="advanced-filters" id="advanced-filters">
+          {select("genre", "Genres", facet.genres, !facet.genres.length)}
+          {select(
+            "language",
+            "Languages",
+            facet.languages,
+            !facet.languages.length,
+          )}
+          {select(
+            "quality",
+            "Qualities",
+            facet.qualities,
+            !facet.qualities.length,
+          )}
+          {select(
+            "country",
+            "Countries",
+            facet.countries,
+            !facet.countries.length,
+          )}
+          <label className="filter-field">
+            <span>From year</span>
+            <input
+              aria-label="From year"
+              inputMode="numeric"
+              placeholder="1888"
+              maxLength={4}
+              value={filters.yearFrom}
+              onChange={(e) => {
+                if (/^\d{0,4}$/.test(e.target.value))
+                  update("yearFrom", e.target.value);
+              }}
+            />
+          </label>
+          <label className="filter-field">
+            <span>To year</span>
+            <input
+              aria-label="To year"
+              inputMode="numeric"
+              placeholder={String(new Date().getFullYear())}
+              maxLength={4}
+              value={filters.yearTo}
+              onChange={(e) => {
+                if (/^\d{0,4}$/.test(e.target.value))
+                  update("yearTo", e.target.value);
+              }}
+            />
+          </label>
+          {kind === "series" && (
+            <label className="filter-field">
+              <span>Series status</span>
+              <select
+                aria-label="Series status"
+                value={filters.status}
+                onChange={(e) => update("status", e.target.value)}
+              >
+                <option value="">Any status</option>
+                <option value="ongoing">Ongoing</option>
+                <option value="completed">Completed</option>
+              </select>
+            </label>
+          )}
+          <p className="facet-note">
+            Filters become available when the collection supplies the matching
+            metadata.
+          </p>
+        </div>
+      )}
+      <div className="alphabet-nav" aria-label="Filter by first letter">
+        <button
+          aria-pressed={!filters.letter}
+          onClick={() => update("letter", "")}
+        >
+          ALL
+        </button>
+        {alphabet.map((letter) => (
+          <button
+            key={letter}
+            aria-pressed={filters.letter === letter}
+            onClick={() =>
+              update("letter", filters.letter === letter ? "" : letter)
+            }
+          >
+            {letter}
+          </button>
+        ))}
+      </div>
+      {active.length > 0 && (
+        <div className="active-filters">
+          {active.map(([key, value]) => (
+            <button
+              key={key}
+              aria-label={`Remove ${key} filter`}
+              onClick={() => update(key as keyof CatalogueFilters, "")}
+            >
+              {key === "q" ? `“${value}”` : value}
+              <X size={12} />
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="results-heading" role="status">
+        <span>
+          {busy
+            ? "Finding your stories…"
+            : `${data.items.length} ${data.items.length === 1 ? "title" : "titles"} on this page`}
+        </span>
+        <span>PAGE {data.page}</span>
+      </div>
+      {error && (
+        <div className="notice" role="alert">
+          {error}
+          <button onClick={() => setRevision((r) => r + 1)}>Try again</button>
+        </div>
+      )}
+      <div
+        className={`directory-results ${busy ? "is-loading" : ""}`}
+        aria-busy={busy}
+      >
+        {[...groups.entries()].map(([letter, titles]) => (
+          <section key={letter} className="directory-group">
+            {grouped && (
+              <h2>
+                {letter}
+                <span>
+                  {titles.length} {titles.length === 1 ? "story" : "stories"}
+                </span>
+              </h2>
+            )}
+            <div className="directory-list">
+              {titles.map((t) => (
+                <article key={t.id} className="directory-item">
+                  <Link href={titleHref(t)}>
+                    <h3>{t.title}</h3>
+                    <p>
+                      {[t.year, t.category, t.language]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                  </Link>
+                  {t.quality && <span className="label-tag">{t.quality}</span>}
+                  <SaveButton title={t} compact />
+                  <Link
+                    className="directory-open"
+                    href={titleHref(t)}
+                    aria-label={`Explore ${t.title}`}
+                  >
+                    <ArrowUpRight size={18} />
+                  </Link>
+                </article>
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+      {!data.items.length && !busy && (
+        <div className="empty">
+          <Search size={32} />
+          <h2>No stories in this selection.</h2>
+          <p>Try another title, letter, or year.</p>
+          <button className="secondary" onClick={reset}>
+            Clear filters
           </button>
         </div>
-      ) : (
-        <div className="space-y-12">
-          {activeGroupKeys.map((letterKey) => {
-            const groupTitles = groupedItems[letterKey] || [];
-            if (!groupTitles.length) return null;
-
-            return (
-              <section
-                key={letterKey}
-                id={`directory-section-${letterKey}`}
-                className="scroll-mt-28 md:scroll-mt-36"
-              >
-                {/* Letter Header */}
-                <div className="flex items-center gap-4 pb-3 mb-3 border-b border-white/15">
-                  <span className="text-3xl font-bold tracking-tight text-white/90 w-10">
-                    {letterKey}
-                  </span>
-                  <div className="h-px flex-1 bg-gradient-to-r from-white/15 to-transparent" />
-                  <span className="text-xs font-medium text-white/40">
-                    {groupTitles.length} {groupTitles.length === 1 ? "title" : "titles"}
-                  </span>
-                </div>
-
-                {/* Clean Text-First List */}
-                <div className="divide-y divide-white/5 bg-[#121614]/60 rounded-2xl border border-white/5 overflow-hidden">
-                  {groupTitles.map((title) => {
-                    const itemHref = kind === "series" ? `/series/${title.id}` : `/movies/${title.id}`;
-                    const isSaved = savedIds.has(title.id);
-
-                    return (
-                      <div
-                        key={title.id}
-                        className="group flex items-center justify-between px-5 py-3.5 hover:bg-white/5 transition-colors"
-                      >
-                        {/* Title link and metadata */}
-                        <Link
-                          href={itemHref}
-                          className="flex-1 flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 min-w-0 pr-4"
-                        >
-                          <span className="text-sm sm:text-base font-semibold text-white/90 group-hover:text-white transition-colors">
-                            {title.title}
-                          </span>
-
-                          <div className="flex items-center gap-2 text-xs text-white/45 shrink-0">
-                            {title.year && (
-                              <span className="text-white/60 font-mono">({title.year})</span>
-                            )}
-                            {title.category && (
-                              <>
-                                <span>•</span>
-                                <span>{title.category}</span>
-                              </>
-                            )}
-                            {title.quality && (
-                              <>
-                                <span>•</span>
-                                <span className="px-1.5 py-0.2 rounded border border-white/15 text-[10px] uppercase font-mono text-[#88b596]">
-                                  {title.quality}
-                                </span>
-                              </>
-                            )}
-                          </div>
-                        </Link>
-
-                        {/* Quick actions: Play & Save */}
-                        <div className="flex items-center gap-2 shrink-0 opacity-80 group-hover:opacity-100 transition-opacity">
-                          <button
-                            type="button"
-                            onClick={(e) => handleToggleSave(e, title)}
-                            aria-label={isSaved ? "Remove from My List" : "Add to My List"}
-                            className={`p-2 rounded-lg text-xs transition-colors cursor-pointer ${
-                              isSaved
-                                ? "text-[#88b596] bg-[#88b596]/15 hover:bg-[#88b596]/25"
-                                : "text-white/50 hover:text-white hover:bg-white/10"
-                            }`}
-                          >
-                            {isSaved ? <Check size={15} /> : <Plus size={15} />}
-                          </button>
-
-                          <Link
-                            href={itemHref}
-                            className="p-2 rounded-lg text-white/70 hover:text-black hover:bg-white transition-all"
-                            aria-label={`Play ${title.title}`}
-                          >
-                            <Play size={14} fill="currentColor" />
-                          </Link>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            );
-          })}
-        </div>
+      )}
+      <div className="pagination">
+        <button
+          className="secondary"
+          disabled={busy || data.page <= 1}
+          onClick={() => update("page", data.page - 1)}
+        >
+          <ChevronLeft size={16} /> Previous
+        </button>
+        <span>
+          Page {data.page}
+          {data.total ? ` of ${Math.ceil(data.total / 36)}` : ""}
+        </span>
+        <button
+          className="secondary"
+          disabled={busy || !data.hasNext}
+          onClick={() => update("page", data.page + 1)}
+        >
+          Next <ChevronRight size={16} />
+        </button>
+      </div>
+      {data.stale && (
+        <p className="availability-note">
+          Showing the saved collection while the catalogue reconnects.
+        </p>
       )}
     </div>
   );

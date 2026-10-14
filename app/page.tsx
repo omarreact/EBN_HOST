@@ -1,202 +1,98 @@
-"use client";
-
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, Compass } from "lucide-react";
 import snapshot from "@/data/catalogue.json";
-import { api, TitleSchema, type Catalogue, type Title } from "@/lib/model";
+import { TitleSchema } from "@/lib/model";
+import { universeFor } from "@/lib/curation";
 import { Hero } from "@/components/hero";
-import { Row } from "@/components/cards";
+import { LiveRow } from "@/components/live-row";
 import { PromoVideoSection } from "@/components/promo-video-section";
 import { MarvelVsDc } from "@/components/marvel-vs-dc";
 import { TimelessClassics } from "@/components/timeless-classics";
 import { HiddenGems } from "@/components/hidden-gems";
-
-// Render the bundled catalogue immediately. An unreachable HTTP origin should
-// never hold up the initial HTTPS page render on Vercel.
-const fallback: Catalogue = {
-  items: TitleSchema.array().parse(snapshot.items).filter((title) => !title.mature),
-  categories: snapshot.categories.map((category) => ({
-    name: category.name,
-    kind: category.kind === "series" ? "series" : "movie",
-    mature: category.mature,
-  })),
-  years: snapshot.years,
-  hasNext: false,
-  page: 1,
-  stale: true,
-  retrievedAt: snapshot.retrievedAt,
-};
-const fallbackSeries: Catalogue = {
-  ...fallback,
-  items: fallback.items.filter((item) => item.kind === "series"),
-};
-const detailSnapshot = new Map(
-  snapshot.details.map((entry) => [entry.title.id, TitleSchema.parse(entry.title)]),
-);
+import { ContinueRail } from "@/components/continue-rail";
 
 export default function Home() {
-  const [c, setCatalogue] = useState<Catalogue>(fallback);
-  const [s, setSeriesCatalogue] = useState<Catalogue>(fallbackSeries);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8_000);
-    async function refresh(path: string, update: (data: Catalogue) => void) {
-      try {
-        const response = await fetch(api(path), {
-          signal: controller.signal,
-          cache: "no-store",
-        });
-        if (!response.ok) return;
-        const data: Catalogue = await response.json();
-        if (
-          !controller.signal.aborted &&
-          Array.isArray(data.items) &&
-          Array.isArray(data.categories)
-        ) {
-          update(data);
-        }
-      } catch {
-        // Keep the visible fallback catalogue if the provider is unavailable.
-      }
-    }
-    void refresh("/catalogue", setCatalogue);
-    void refresh("/catalogue?kind=series", setSeriesCatalogue);
-    return () => {
-      clearTimeout(timeout);
-      controller.abort();
-    };
-  }, []);
-
-  const movies = c?.items.filter((t) => t.kind === "movie") || [];
-  const seriesMap = new Map<string, Title>();
-  if (s?.items) {
-    for (const item of s.items) seriesMap.set(item.id, item);
-  }
-  if (c?.items) {
-    for (const item of c.items) {
-      if (item.kind === "series" && !seriesMap.has(item.id)) {
-        seriesMap.set(item.id, item);
-      }
-    }
-  }
-  const series = Array.from(seriesMap.values());
-
-  // 1. Featured items for Hero Carousel
-  const featuredCandidates: Title[] = [];
-  const maxPairs = 4;
-  for (let i = 0; i < maxPairs; i++) {
-    if (movies[i]) featuredCandidates.push(movies[i]);
-    if (series[i]) featuredCandidates.push(series[i]);
-  }
-  const topFeatured = featuredCandidates.slice(0, 6);
-  const featured = topFeatured.map((title) => detailSnapshot.get(title.id) ?? title);
-
-  const categories = c?.categories || [];
-
-  // Marvel vs DC Title filtering & curation
-  const marvelKeywords = ["marvel", "spider-man", "spiderman", "avengers", "iron man", "thor", "captain america", "guardians of the galaxy", "doctor strange", "black panther", "deadpool", "wolverine", "x-men", "ant-man", "hulk", "loki", "wandavision", "hawkeye", "moon knight"];
-  const dcKeywords = ["batman", "superman", "wonder woman", "aquaman", "flash", "joker", "justice league", "suicide squad", "peacemaker", "shazam", "black adam", "arrow", "gotham", "green lantern", "harley quinn"];
-
-  const allItems = [...movies, ...series];
-
-  let marvelTitles = allItems.filter((t) =>
-    marvelKeywords.some((kw) => t.title.toLowerCase().includes(kw)),
+  const details = new Map(
+    snapshot.details.map((d) => [d.title.id, TitleSchema.parse(d.title)]),
   );
-  let dcTitles = allItems.filter((t) =>
-    dcKeywords.some((kw) => t.title.toLowerCase().includes(kw)),
-  );
-
-  if (marvelTitles.length < 4) {
-    marvelTitles = [
-      ...marvelTitles,
-      ...movies.filter((t) => (t.category?.toLowerCase().includes("action") || t.category?.toLowerCase().includes("sci-fi")) && !marvelTitles.some((m) => m.id === t.id)),
-    ].slice(0, 8);
-  }
-
-  if (dcTitles.length < 4) {
-    dcTitles = [
-      ...dcTitles,
-      ...series.filter((t) => (t.category?.toLowerCase().includes("action") || t.category?.toLowerCase().includes("crime") || t.category?.toLowerCase().includes("adventure")) && !dcTitles.some((d) => d.id === t.id)),
-    ].slice(0, 8);
-  }
-
-  // Section 6: Timeless Classics (older releases, <= 2014)
-  let classics = allItems.filter((t) => t.year && t.year <= 2014);
-  if (classics.length < 6) {
-    classics = allItems.slice(20, 36);
-  }
-
-  // Section 7: Rediscover & Hidden Gems
-  let hiddenGems = allItems.filter((t) => (t.synopsis && t.synopsis.length > 50) || t.backdrop);
-  if (hiddenGems.length < 6) {
-    hiddenGems = allItems.slice(10, 24);
-  }
-
+  const items = TitleSchema.array()
+    .parse(snapshot.items)
+    .filter((t) => !t.mature)
+    .map((t) => details.get(t.id) || t);
+  const movies = items
+    .filter((t) => t.kind === "movie")
+    .sort((a, b) => Number(b.providerId) - Number(a.providerId));
+  const series = items.filter((t) => t.kind === "series");
+  const featured = [
+    "movie-78724",
+    "series-31416",
+    "movie-77533",
+    "movie-34110",
+  ].flatMap((id) => items.find((t) => t.id === id) || []);
+  const classics = items.filter((t) => t.year && t.year < 2010);
+  const gems = items
+    .filter((t) => t.year && t.year >= 2010 && t.year < 2020)
+    .slice(0, 10);
   return (
     <>
-      {/* Section 1: Full-Screen Cinematic Hero Banner */}
       <Hero titles={featured} />
-
       <div className="page-content">
-        {/* Quick Discovery Chips */}
         <div className="discovery-bar">
-          <span>Find your kind of story</span>
+          <span>
+            <Compass size={15} /> FIND YOUR NEXT STORY
+          </span>
           <div className="chips">
-            {categories
-              .filter((cat) => cat.kind === "movie" && !cat.mature)
-              .slice(0, 8)
-              .map((cat) => (
-                <Link
-                  key={cat.name}
-                  href={"/movies?category=" + encodeURIComponent(cat.name)}
-                >
-                  {cat.name}
-                </Link>
-              ))}
-            <Link href="/movies">
+            {[
+              "English",
+              "Bangla",
+              "Hindi",
+              "Animation",
+              "Documentaries",
+              "Dual Audio",
+            ].map((c) => (
+              <Link key={c} href={`/movies/?category=${encodeURIComponent(c)}`}>
+                {c}
+              </Link>
+            ))}
+            <Link href="/movies/">
               All collections <ArrowUpRight size={14} />
             </Link>
           </div>
         </div>
-
-        {/* Section 2: Latest Movies Rail */}
-        <Row
-          kicker="LATEST MOVIES"
-          title="New stories, new obsessions"
-          items={movies.slice(0, 15)}
-          href="/movies"
+        <ContinueRail />
+        <LiveRow
+          kind="movie"
+          kicker="FRESH ON PINFLIX"
+          title="New stories. New obsessions."
+          initial={movies.slice(0, 12)}
         />
       </div>
-
-      {/* Section 3: Cinematic Promotional Video Experience */}
-      <PromoVideoSection />
-
+      <PromoVideoSection
+        poster={featured[1]?.backdrop || featured[1]?.poster || null}
+      />
       <div className="page-content">
-        {/* Section 4: Latest TV Series Rail */}
-        <Row
-          kicker="LATEST TV SERIES"
-          title="Series to settle into"
-          items={series.slice(0, 15)}
-          href="/series"
+        <LiveRow
+          kind="series"
+          kicker="ONE MORE EPISODE"
+          title="Your next binge starts here."
+          initial={series.slice(0, 12)}
         />
-
-        {/* Section 5: MARVEL VS. DC: Cinematic Universe Experience */}
-        <MarvelVsDc marvelTitles={marvelTitles} dcTitles={dcTitles} />
-
-        {/* Section 6: Timeless Classics */}
+        <MarvelVsDc
+          marvelTitles={items.filter((t) => universeFor(t) === "marvel")}
+          dcTitles={items.filter((t) => universeFor(t) === "dc")}
+          marvelVideo={process.env.PINFLIX_MARVEL_PROMO_URL}
+          dcVideo={process.env.PINFLIX_DC_PROMO_URL}
+        />
         <TimelessClassics titles={classics} />
-
-        {/* Section 7: Rediscover & Hidden Gems */}
-        <HiddenGems titles={hiddenGems} />
-
-        {c?.stale && (
-          <p className="availability-note mt-8 mb-4">
-            Showing the last available collection. More titles will return when
-            the catalogue reconnects.
-          </p>
-        )}
+        <HiddenGems titles={gems} />
+        <div className="end-discovery">
+          <span className="eyebrow">THE CREDITS CAN WAIT</span>
+          <h2>There’s always another story.</h2>
+          <p>Explore the collection. Find something that stays with you.</p>
+          <Link href="/search/" className="secondary">
+            Find your next favourite <ArrowUpRight size={17} />
+          </Link>
+        </div>
       </div>
     </>
   );

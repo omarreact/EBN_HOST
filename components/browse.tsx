@@ -1,319 +1,256 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight, Search, X } from "lucide-react";
+import { api, type Catalogue } from "@/lib/model";
 import {
-  Search,
-  SlidersHorizontal,
-  RefreshCw,
-  ArrowDown,
-  Film,
-} from "lucide-react";
-import { api, type Catalogue, type Title } from "@/lib/model";
+  QuerySchema,
+  queryParams,
+  type CatalogueFilters,
+} from "@/lib/catalogue-query";
+import { read, write } from "@/lib/storage";
 import { Card } from "./cards";
 export function Browse({
   initial,
-  kind,
-  initialQuery = "",
-  initialCategory = "",
-  initialYear = "",
+  initialFilters,
+  initialKind = "",
 }: {
   initial: Catalogue;
-  kind?: "movie" | "series";
-  initialQuery?: string;
-  initialCategory?: string;
-  initialYear?: string;
+  initialFilters: CatalogueFilters;
+  initialKind?: "" | "movie" | "series";
 }) {
   const [data, setData] = useState(initial);
-  const [q, setQ] = useState(initialQuery);
-  const [searchBy, setSearchBy] = useState("title");
-  const [category, setCategory] = useState(initialCategory);
-  const [year, setYear] = useState(initialYear);
-  const [language, setLanguage] = useState("");
-  const [quality, setQuality] = useState("");
-  const [sort, setSort] = useState("recent");
-  const [type, setType] = useState(kind || "");
+  const [filters, setFilters] = useState(initialFilters);
+  const [kind, setKind] = useState(initialKind);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [refresh, setRefresh] = useState(0);
+  const [revision, setRevision] = useState(0);
   const first = useRef(true);
-  const [languageOptions, setLanguageOptions] = useState(() => initial.items.flatMap((t) => t.language ? [t.language] : []));
-  const requestVersion = useRef(0);
+  const version = useRef(0);
+  const set = (key: keyof CatalogueFilters, value: string | number) =>
+    setFilters((f) => ({
+      ...f,
+      [key]: value,
+      ...(key !== "page" ? { page: 1 } : {}),
+    }));
+  useEffect(() => {
+    const pop = () => {
+      const p = new URLSearchParams(location.search);
+      setFilters(QuerySchema.parse(Object.fromEntries(p)));
+      setKind(
+        p.get("kind") === "movie"
+          ? "movie"
+          : p.get("kind") === "series"
+            ? "series"
+            : "",
+      );
+    };
+    window.addEventListener("popstate", pop);
+    return () => window.removeEventListener("popstate", pop);
+  }, []);
   useEffect(() => {
     if (first.current) {
       first.current = false;
       return;
     }
-    const version = ++requestVersion.current;
+    const current = ++version.current;
     const controller = new AbortController();
-    const timer = setTimeout(() => {
+    const timer = setTimeout(async () => {
       setBusy(true);
       setError("");
-      const p = new URLSearchParams();
-      Object.entries({
-        q: searchBy === "title" ? q : "",
-        actor: searchBy === "actor" ? q : "",
-        category,
-        year,
-        language,
-        quality,
-        sort,
-        kind: type,
-      }).forEach(([k, v]) => {
-        if (v) p.set(k, v);
-      });
-      fetch(api("/catalogue?" + p), { signal: controller.signal })
-        .then(async (r) => {
-          if (!r.ok) throw new Error();
-          return r.json();
-        })
-        .then((next: Catalogue) => {
-          if (controller.signal.aborted || version !== requestVersion.current) return;
-          setLanguageOptions((current) => [...new Set([...current, ...next.items.flatMap((t) => t.language ? [t.language] : [])])]);
-          setData(next);
-        })
-        .catch((e) => {
-          if (e.name !== "AbortError")
-            setError("We could not load this collection. Please try again.");
-        })
-        .finally(() => {
-          if (!controller.signal.aborted) setBusy(false);
+      const p = queryParams(filters, kind || undefined);
+      const url = new URL(location.href);
+      url.search = p.toString();
+      window.history.replaceState(window.history.state, "", url);
+      p.set("directory", "true");
+      try {
+        const r = await fetch(api("/catalogue?" + p), {
+          signal: controller.signal,
         });
-    }, 300);
+        if (!r.ok) throw new Error();
+        const next: Catalogue = await r.json();
+        if (current === version.current && !controller.signal.aborted)
+          setData(next);
+      } catch {
+        if (!controller.signal.aborted)
+          setError("Search could not connect. Please try again.");
+      } finally {
+        if (!controller.signal.aborted) setBusy(false);
+      }
+    }, 250);
     return () => {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [q, category, year, language, quality, sort, type, refresh, searchBy]);
-  async function more() {
-    const version = requestVersion.current;
-    setBusy(true);
-    setError("");
-    const p = new URLSearchParams({ page: String(data.page + 1) });
-    Object.entries({
-      q: searchBy === "title" ? q : "",
-      actor: searchBy === "actor" ? q : "",
-      category,
-      year,
-      language,
-      quality,
-      sort,
-      kind: type,
-    }).forEach(([k, v]) => {
-      if (v) p.set(k, v);
-    });
-    try {
-      const r = await fetch(api("/catalogue?" + p));
-      if (!r.ok) throw new Error();
-      const next: Catalogue = await r.json();
-      if (version !== requestVersion.current) return;
-      setLanguageOptions((current) => [...new Set([...current, ...next.items.flatMap((t) => t.language ? [t.language] : [])])]);
-      setData({
-        ...next,
-        items: [
-          ...new Map(
-            [...data.items, ...next.items].map(
-              (t) => [t.id, t] as [string, Title],
-            ),
-          ).values(),
-        ],
-      });
-    } catch {
-      if (version === requestVersion.current) setError("More titles could not be loaded. Try again.");
-    } finally {
-      if (version === requestVersion.current) setBusy(false);
-    }
-  }
-  const categories = data.categories.filter(
-    (c) => (!type || c.kind === type) && !c.mature,
+  }, [filters, kind, revision]);
+  const facets = data.facets || {
+    languages: [],
+    genres: [],
+    countries: [],
+    qualities: [],
+  };
+  const categories = [
+    ...new Set(
+      data.categories
+        .filter((c) => !c.mature && (!kind || c.kind === kind))
+        .map((c) => c.name),
+    ),
+  ];
+  const field = (
+    key: "year" | "category" | "language" | "quality",
+    label: string,
+    values: string[],
+  ) => (
+    <label className="filter-field">
+      <span>{label}</span>
+      <select
+        aria-label={label}
+        value={filters[key]}
+        onChange={(e) => set(key, e.target.value)}
+      >
+        <option value="">Any {label.toLowerCase()}</option>
+        {[...new Set([...values, ...(filters[key] ? [filters[key]] : [])])].map(
+          (v) => (
+            <option key={v} value={v}>
+              {v}
+            </option>
+          ),
+        )}
+      </select>
+    </label>
   );
-  const languages = [...languageOptions, ...(language ? [language] : [])].filter((value, i, values) => values.indexOf(value) === i).sort();
   return (
     <div className="page-content browse-page">
       <div className="page-title">
-        <p className="eyebrow">YOUR NEXT GOOD FIND</p>
+        <p className="eyebrow">LET CURIOSITY TAKE THE LEAD</p>
         <h1>
-          {initialQuery
-            ? "Search the stories"
-            : kind === "series"
-              ? "A season for everything."
-              : kind === "movie"
-                ? "A world in every frame."
-                : "Discover something great."}
+          Find your next
+          <br />
+          favourite<span className="title-period">.</span>
         </h1>
-        <p>
-          Explore{" "}
-          {kind === "series"
-            ? "series and seasons"
-            : kind === "movie"
-              ? "films from around the world"
-              : "movies and series"}{" "}
-          from the CineplexBD collection.
-        </p>
+        <p>A good story is closer than you think. Search movies and series.</p>
       </div>
-      <div className="filter-panel">
-        <label className="browse-search">
+      <div className="directory-controls">
+        <label className="directory-search">
           <Search size={20} />
           <input
             aria-label="Search catalogue"
-            placeholder="Title, year, language…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
+            autoComplete="off"
+            value={filters.q}
+            maxLength={120}
+            placeholder="A movie, a series, a whole new world…"
+            onChange={(e) => set("q", e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && filters.q.trim()) {
+                const recent = read<string[]>("search", []);
+                write(
+                  "search",
+                  [
+                    filters.q.trim(),
+                    ...(Array.isArray(recent) ? recent : []).filter(
+                      (s) => s !== filters.q.trim(),
+                    ),
+                  ].slice(0, 6),
+                );
+              }
+            }}
           />
-        </label>
-        <div className="filters">
-          <SlidersHorizontal size={17} />
-          <label>
-            <span>Search by</span>
-            <select
-              aria-label="Search by"
-              value={searchBy}
-              onChange={(e) => setSearchBy(e.target.value)}
-            >
-              <option value="title">Title / keywords</option>
-              <option value="actor">Cast member</option>
-            </select>
-          </label>
-          {!kind && (
-            <label>
-              <span>Type</span>
-              <select
-                aria-label="Content type"
-                value={type}
-                onChange={(e) => {
-                  setType(e.target.value);
-                  setCategory("");
-                }}
-              >
-                <option value="">All stories</option>
-                <option value="movie">Movies</option>
-                <option value="series">Series</option>
-              </select>
-            </label>
+          {filters.q && (
+            <button aria-label="Clear search" onClick={() => set("q", "")}>
+              <X size={17} />
+            </button>
           )}
-          <label>
-            <span>Collection</span>
-            <select
-              aria-label="Category"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-            >
-              <option value="">All collections</option>
-              {categories.map((c) => (
-                <option key={c.kind + c.name} value={c.name}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Year</span>
-            <select
-              aria-label="Year"
-              value={year}
-              onChange={(e) => setYear(e.target.value)}
-            >
-              <option value="">Any year</option>
-              {data.years.map((y) => (
-                <option key={y}>{y}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Language</span>
-            <select
-              aria-label="Language"
-              value={language}
-              onChange={(e) => setLanguage(e.target.value)}
-            >
-              <option value="">All languages</option>
-              {languages.map((l) => (
-                <option key={l}>{l}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Quality</span>
-            <select
-              aria-label="Quality"
-              value={quality}
-              onChange={(e) => setQuality(e.target.value)}
-            >
-              <option value="">Any quality</option>
-              {["4K", "1080P", "720P", "480P", "360P"].map((s) => (
-                <option key={s}>{s}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Sort</span>
-            <select
-              aria-label="Sort titles"
-              value={sort}
-              onChange={(e) => setSort(e.target.value)}
-            >
-              <option value="recent">Recently added</option>
-              <option value="year">Release year</option>
-              <option value="title">Title A–Z</option>
-            </select>
-          </label>
-          <button
-            aria-label="Refresh collection"
-            className="icon-button"
-            onClick={() => setRefresh((n) => n + 1)}
-          >
-            <RefreshCw size={17} />
-          </button>
-        </div>
+        </label>
       </div>
-      <div className="results-heading">
+      <div className="directory-filter-row search-filter-row">
+        <label className="filter-field">
+          <span>Type</span>
+          <select
+            aria-label="Content type"
+            value={kind}
+            onChange={(e) => {
+              setKind(e.target.value as typeof kind);
+              setFilters((f) => ({ ...f, category: "", page: 1 }));
+            }}
+          >
+            <option value="">Movies & series</option>
+            <option value="movie">Movies</option>
+            <option value="series">TV Series</option>
+          </select>
+        </label>
+        {field("year", "Year", data.years.map(String))}
+        {field("category", "Collection", categories)}
+        {field("language", "Language", facets.languages)}
+        {field("quality", "Quality", facets.qualities)}
+        <label className="filter-field">
+          <span>Sort</span>
+          <select
+            aria-label="Sort search results"
+            value={filters.sort}
+            onChange={(e) => set("sort", e.target.value)}
+          >
+            <option value="recent">Recently added</option>
+            <option value="title">Title A–Z</option>
+            <option value="title-desc">Title Z–A</option>
+            <option value="year">Newest release</option>
+            <option value="year-asc">Oldest release</option>
+          </select>
+        </label>
+      </div>
+      <div className="results-heading" role="status">
         <span>
-          {data.items.length} {data.items.length === 1 ? "story" : "stories"} in
-          this selection
+          {busy
+            ? "Finding stories…"
+            : `${data.total ?? data.items.length} stories${filters.q ? ` for “${filters.q}”` : " in this selection"}`}
         </span>
-        {busy && <span role="status">Finding stories…</span>}
+        <span>PAGE {data.page}</span>
       </div>
       {error && (
-        <div role="alert" className="notice">
+        <div className="notice" role="alert">
           {error}
-          <button onClick={() => setRefresh((n) => n + 1)}>Try again</button>
+          <button onClick={() => setRevision((r) => r + 1)}>Try again</button>
         </div>
       )}
-      <div className={"card-grid " + (busy ? "is-loading" : "")}>
+      <div className={`card-grid ${busy ? "is-loading" : ""}`} aria-busy={busy}>
         {data.items.map((t) => (
           <Card key={t.id} title={t} />
         ))}
       </div>
       {!data.items.length && !busy && (
         <div className="empty">
-          <Film size={32} />
-          <h2>No stories found</h2>
-          <p>Try another title or broaden your filters.</p>
+          <Search size={32} />
+          <h2>No stories found.</h2>
+          <p>Try another title, or give your search a little more room.</p>
           <button
             className="secondary"
             onClick={() => {
-              setQ("");
-              setCategory("");
-              setYear("");
-              setLanguage("");
-              setQuality("");
-              setSearchBy("title");
-              setSort("recent");
-              setType(kind || "");
+              setFilters(QuerySchema.parse({ sort: "recent" }));
+              setKind("");
             }}
           >
             Clear filters
           </button>
         </div>
       )}
-      {data.hasNext && (
-        <div className="load-more">
-          <button className="secondary" disabled={busy} onClick={more}>
-            More stories <ArrowDown size={17} />
-          </button>
-        </div>
-      )}
+      <div className="pagination">
+        <button
+          className="secondary"
+          disabled={busy || data.page <= 1}
+          onClick={() => set("page", data.page - 1)}
+        >
+          <ChevronLeft size={15} /> Previous
+        </button>
+        <span>Page {data.page}</span>
+        <button
+          className="secondary"
+          disabled={busy || !data.hasNext}
+          onClick={() => set("page", data.page + 1)}
+        >
+          Next <ChevronRight size={15} />
+        </button>
+      </div>
       {data.stale && (
         <p className="availability-note">
-          Showing previously available titles while the collection reconnects.
+          Showing the saved collection while the catalogue reconnects.
         </p>
       )}
     </div>

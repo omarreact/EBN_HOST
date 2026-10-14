@@ -21,7 +21,13 @@ export function allowedUrl(value: string, media = false): URL {
       (host === "commondatastorage.googleapis.com" ||
         host === "test-streams.mux.dev" ||
         host.endsWith(".cloudflarestream.com") ||
-        host === "cloudflarestream.com"));
+        host === "cloudflarestream.com" ||
+        host.endsWith(".hakunaymatata.com") ||
+        host === "hakunaymatata.com" ||
+        host.endsWith(".aoneroom.com") ||
+        host === "aoneroom.com" ||
+        host === "movibox.net" ||
+        host.endsWith(".movibox.net")));
   if (
     !allowed ||
     u.username ||
@@ -64,7 +70,7 @@ export async function safeFetch(
     const res = await fetch(u, {
       ...options,
       redirect: "manual",
-      signal: AbortSignal.timeout(8000),
+      signal: options.signal || AbortSignal.timeout(media ? 8000 : 2500),
       cache: "no-store",
       headers: {
         Accept: "text/html,application/json,application/vnd.apple.mpegurl,*/*",
@@ -134,15 +140,6 @@ export async function cached<T>(
   return job;
 }
 export const html = (path: string) =>
-  cached("html:" + path, 180_000, async () => {
-    for (let i = 0; i < 2; i++) {
-      try {
-        return await boundedText(
-          await safeFetch("http://cineplexbd.net" + path),
-        );
-      } catch (e) {
-        if (i || (e instanceof ProviderError && e.status < 500)) throw e;
-      }
-    }
-    throw new ProviderError("upstream_error");
-  });
+  cached("html:" + path, 180_000, async () =>
+    boundedText(await safeFetch("http://cineplexbd.net" + path)),
+  );

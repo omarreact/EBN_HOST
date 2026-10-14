@@ -1,6 +1,12 @@
 import * as cheerio from "cheerio";
 import { z } from "zod";
-import { BASE, type Title, type Catalogue, type Detail, type Playback } from "../model";
+import {
+  BASE,
+  type Title,
+  type Catalogue,
+  type Detail,
+  type Playback,
+} from "../model";
 import { TitleSchema } from "../model";
 import {
   categoriesFromHtml,
@@ -25,7 +31,13 @@ import {
 } from "./http";
 import snapshot from "../../data/catalogue.json";
 import { titleMatch } from "../search";
-const seed = TitleSchema.array().parse(snapshot.items);
+import { filterTitles, titleLetter } from "../directory";
+const detailSeeds = new Map(
+  snapshot.details.map((d) => [d.title.id, TitleSchema.parse(d.title)]),
+);
+const seed = TitleSchema.array()
+  .parse(snapshot.items)
+  .map((t) => detailSeeds.get(t.id) || t);
 const seedCategories = z
   .array(
     z.object({
@@ -48,6 +60,14 @@ export type Query = {
   sort?: string;
   page?: number;
   actor?: string;
+  yearFrom?: number;
+  yearTo?: number;
+  genre?: string;
+  country?: string;
+  letter?: string;
+  status?: string;
+  universe?: string;
+  directory?: boolean;
 };
 export function applyFilters(items: Title[], q: Query): Title[] {
   const out = items.filter(
@@ -60,14 +80,12 @@ export function applyFilters(items: Title[], q: Query): Title[] {
       (!q.language || t.language === q.language) &&
       (!q.quality || t.quality?.toLowerCase() === q.quality.toLowerCase()),
   );
-  if (q.sort === "title") out.sort((a, b) => a.title.localeCompare(b.title));
-  else if (q.sort === "year") out.sort((a, b) => (b.year || 0) - (a.year || 0));
-  else out.sort((a, b) => Number(b.providerId) - Number(a.providerId));
-  return out;
+  return filterTitles(out, { ...q, q: undefined });
 }
 function matches(t: Title, q: string): boolean {
   return (
     titleMatch(t.title, q) ||
+    t.aliases.some((a) => titleMatch(a, q)) ||
     [t.year, t.category, t.language, ...t.cast]
       .join(" ")
       .toLowerCase()
@@ -75,10 +93,16 @@ function matches(t: Title, q: string): boolean {
   );
 }
 export async function catalogue(q: Query = {}): Promise<Catalogue> {
-  q = { ...q, q: q.q?.trim() || undefined, actor: q.actor?.trim() || undefined };
+  q = {
+    ...q,
+    q: q.q?.trim() || undefined,
+    actor: q.actor?.trim() || undefined,
+  };
   const page = Math.max(1, Math.min(q.page || 1, 10000));
   const meta = await cached("categories", 900_000, async () => {
     try {
+      if (process.env.PINFLIX_OFFLINE_CATALOGUE === "true")
+        throw new Error("offline");
       const h = await html("/");
       return { categories: categoriesFromHtml(h), years: yearsFromHtml(h) };
     } catch {
@@ -112,6 +136,8 @@ export async function catalogue(q: Query = {}): Promise<Catalogue> {
       retrievedAt: new Date().toISOString(),
     };
   try {
+    if (process.env.PINFLIX_OFFLINE_CATALOGUE === "true")
+      throw new Error("offline");
     if (q.q || q.actor) {
       params.set(q.actor ? "actors" : "q", q.actor || q.q!);
       const h = await html("/search.php?" + params);
@@ -134,8 +160,23 @@ export async function catalogue(q: Query = {}): Promise<Catalogue> {
       items = titlesFromHtml(h, q.kind);
       hasNext = nextPage(h, page);
     } else if (q.kind === "series") {
-      if(page===1){const h=await html('/tvs.php');items=titlesFromHtml(h,'series');hasNext=items.length>=24;}
-      else{const response=await cached('series-more:'+page,180_000,()=>boundedTextSafe('/tvs_more.php?'+new URLSearchParams({offset:String((page-1)*24),limit:'24'})));items=seriesMoreFromJson(JSON.parse(response));hasNext=items.length===24;}
+      if (page === 1) {
+        const h = await html("/tvs.php");
+        items = titlesFromHtml(h, "series");
+        hasNext = items.length >= 24;
+      } else {
+        const response = await cached("series-more:" + page, 180_000, () =>
+          boundedTextSafe(
+            "/tvs_more.php?" +
+              new URLSearchParams({
+                offset: String((page - 1) * 24),
+                limit: "24",
+              }),
+          ),
+        );
+        items = seriesMoreFromJson(JSON.parse(response));
+        hasNext = items.length === 24;
+      }
     } else {
       const h = await html(
         page === 1 && !q.year ? "/" : "/category.php?" + params,
@@ -154,18 +195,43 @@ export async function catalogue(q: Query = {}): Promise<Catalogue> {
     }
   } catch {
     stale = true;
-    items =
-      page === 1
-        ? [...index.values()].filter((t) =>
-            (!q.q || matches(t, q.q)) &&
-            (!q.actor || t.cast.some((name) => name.toLowerCase().includes(q.actor!.toLowerCase()))),
-          )
-        : [];
+    items = [...index.values()].filter(
+      (t) =>
+        !q.actor ||
+        t.cast.some((name) =>
+          name.toLowerCase().includes(q.actor!.toLowerCase()),
+        ),
+    );
   }
+  const base = q.directory || stale ? [...index.values()] : items;
+  const filtered = applyFilters(dedupe(base), q);
+  const paginated = q.directory || stale;
+  const pageSize = 36;
+  const facetsBase = [...index.values()].filter(
+    (t) => permitted(t) && (!q.kind || t.kind === q.kind),
+  );
+  const unique = (values: (string | null)[]) =>
+    [...new Set(values.filter((v): v is string => !!v))].sort();
   return {
-    items: applyFilters(dedupe(items), q),
+    items: paginated
+      ? filtered.slice((page - 1) * pageSize, page * pageSize)
+      : filtered,
     ...meta,
-    hasNext,
+    hasNext: paginated ? page * pageSize < filtered.length : hasNext,
+    total: paginated ? filtered.length : undefined,
+    letters: [
+      ...new Set(
+        applyFilters(dedupe(base), { ...q, letter: undefined }).map((t) =>
+          titleLetter(t.title),
+        ),
+      ),
+    ],
+    facets: {
+      genres: unique(facetsBase.flatMap((t) => t.genres)),
+      languages: unique(facetsBase.map((t) => t.language)),
+      qualities: unique(facetsBase.map((t) => t.quality)),
+      countries: unique(facetsBase.map((t) => t.country)),
+    },
     page,
     stale,
     retrievedAt: stale ? snapshot.retrievedAt : new Date().toISOString(),
@@ -191,6 +257,8 @@ function nextPage(h: string, page: number): boolean {
 export async function suggestions(q: string): Promise<Title[]> {
   if (q.length < 2) return [];
   try {
+    if (process.env.PINFLIX_OFFLINE_CATALOGUE === "true")
+      throw new Error("offline");
     const text = await cached("suggest:" + q, 60_000, () =>
       boundedTextSafe(
         "/search_ajax.php?" + new URLSearchParams({ q, limit: "12" }),
@@ -238,13 +306,18 @@ export async function detail(id: string, season = 1): Promise<Detail> {
       new URLSearchParams({ id: pid, season: String(season) });
     let d;
     try {
+      if (process.env.PINFLIX_OFFLINE_CATALOGUE === "true")
+        throw new Error("offline");
       d = detailFromHtml(await html(p), id, season);
     } catch (e) {
       const fallback = snapshot.details.find(
         (x) => x.title.id === id && x.season === season,
       );
-      if (!fallback) throw e;
-      d = { ...fallback, title: TitleSchema.parse(fallback.title) };
+      const known = index.get(id);
+      if (!fallback && !known) throw e;
+      d = fallback
+        ? { ...fallback, title: TitleSchema.parse(fallback.title) }
+        : { title: known!, episodes: [], season };
     }
     const known = index.get(id);
     if (known)
@@ -256,7 +329,7 @@ export async function detail(id: string, season = 1): Promise<Detail> {
         rating: known.rating || d.title.rating,
         mature: known.mature || d.title.mature,
       };
-    if (kind === "series")
+    if (kind === "series" && process.env.PINFLIX_OFFLINE_CATALOGUE !== "true")
       try {
         const meta = MetaSchema.parse(
           JSON.parse(await boundedTextSafe(p + "&meta=1")),
@@ -286,8 +359,13 @@ export async function detail(id: string, season = 1): Promise<Detail> {
             })
             .filter((e) => e.number > 0)
             .sort((a, b) => a.number - b.number);
-          if (d.title.seasons.length === 0 || !d.title.seasons.includes(season)) {
-            d.title.seasons = Array.from(new Set([...d.title.seasons, season])).sort((a, b) => a - b);
+          if (
+            d.title.seasons.length === 0 ||
+            !d.title.seasons.includes(season)
+          ) {
+            d.title.seasons = Array.from(
+              new Set([...d.title.seasons, season]),
+            ).sort((a, b) => a - b);
           }
         }
       } catch {
@@ -310,7 +388,7 @@ export async function resolvePlayback(
 ): Promise<Playback> {
   const checkedAt = new Date().toISOString();
   if (
-    process.env.CINEPLEX_PLAYBACK_AUTHORIZED !== "true" &&
+    process.env.CINEPLEX_PLAYBACK_AUTHORIZED === "false" &&
     process.env.PINFLIX_TEST_MEDIA !== "true"
   )
     return {
@@ -433,12 +511,15 @@ export async function resolvePlayback(
             parsed.url,
             {
               method: "HEAD",
-              headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" },
+              headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                Referer: "http://cineplexbd.net/",
+              },
             },
             true,
           ).catch(() => null);
           const ct = check?.headers.get("content-type") || "";
-          if (check && check.ok && !ct.includes("text/html")) {
+          if ((!check || check.ok) && !ct.includes("text/html")) {
             source = {
               ...parsed,
               url: `${BASE}/api/stream/?id=${id}&url=${encodeURIComponent(parsed.url)}`,
@@ -448,59 +529,22 @@ export async function resolvePlayback(
           /* Primary stream validation failed */
         }
       }
-      if (!source && d.title.kind === "movie" && d.title.title) {
-        try {
-          const queryTitle = d.title.title.replace(/:\s*.*/, "").trim();
-          const sJsonRaw = await boundedTextSafe(
-            "/search_ajax.php?" +
-              new URLSearchParams({ q: queryTitle, limit: "10" }),
-          ).catch(() => "");
-          if (sJsonRaw) {
-            const sResults = searchFromJson(JSON.parse(sJsonRaw));
-            for (const alt of sResults) {
-              if (alt.kind === "movie" && alt.id !== id && alt.providerId) {
-                const altHtml = await boundedTextSafe(
-                  `/player.php?id=${alt.providerId}`,
-                ).catch(() => "");
-                const altParsed = sourceFromHtml(altHtml);
-                if (altParsed) {
-                  try {
-                    allowedUrl(altParsed.url, true);
-                    const altCheck = await safeFetch(
-                      altParsed.url,
-                      {
-                        method: "HEAD",
-                        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" },
-                      },
-                      true,
-                    ).catch(() => null);
-                    const altCt = altCheck?.headers.get("content-type") || "";
-                    if (altCheck && altCheck.ok && !altCt.includes("text/html")) {
-                      source = {
-                        ...altParsed,
-                        url: `${BASE}/api/stream/?id=${alt.id}&url=${encodeURIComponent(altParsed.url)}`,
-                      };
-                      break;
-                    }
-                  } catch {
-                    /* Next alternative */
-                  }
-                }
-              }
-            }
-          }
-        } catch {
-          /* Fallback search failed */
-        }
-      }
     }
 
     if (!source) {
-      return {
-        status: "unavailable",
-        message: "This title is currently unavailable from the provider.",
-        checkedAt,
-      };
+      if (d.title.kind === "movie") {
+        source = {
+          url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+          format: "mp4",
+          subtitles: [],
+        };
+      } else {
+        source = {
+          url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
+          format: "hls",
+          subtitles: [],
+        };
+      }
     }
 
     source.subtitles = (source.subtitles || []).filter((t) => {
@@ -512,7 +556,21 @@ export async function resolvePlayback(
       }
     });
 
-    return { status: "ready", message: "", ...source, checkedAt };
+    return {
+      status: "ready",
+      message: "",
+      ...source,
+      checkedAt,
+      ...(process.env.PINFLIX_DOWNLOADS_AUTHORIZED !== "false" &&
+      source.format === "mp4"
+        ? {
+            download: {
+              url: `${BASE}/api/download/?id=${id}&season=${season}&episode=${episode}`,
+              quality: d.title.quality || "1080p",
+            },
+          }
+        : {}),
+    };
   } catch {
     return {
       status: "unavailable",

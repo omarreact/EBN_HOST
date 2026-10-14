@@ -18,6 +18,10 @@ export const TitleSchema = z.object({
   cast: z.array(z.string()).default([]),
   runtime: z.string().nullable().default(null),
   seasons: z.array(z.number().int()).default([]),
+  aliases: z.array(z.string()).default([]),
+  country: z.string().nullable().default(null),
+  seriesStatus: z.enum(["ongoing", "completed"]).nullable().default(null),
+  universe: z.enum(["marvel", "dc"]).nullable().default(null),
 });
 export type Title = z.infer<typeof TitleSchema>;
 export type Category = {
@@ -31,6 +35,10 @@ export type Episode = {
   title: string;
   thumbnail: string | null;
   quality: string | null;
+  synopsis?: string;
+  runtime?: string;
+  introEnd?: number;
+  recapEnd?: number;
 };
 export type Detail = {
   title: Title;
@@ -46,6 +54,14 @@ export type Catalogue = {
   page: number;
   stale: boolean;
   retrievedAt: string;
+  total?: number;
+  letters?: string[];
+  facets?: {
+    genres: string[];
+    languages: string[];
+    qualities: string[];
+    countries: string[];
+  };
 };
 export type Playback = {
   status:
@@ -59,6 +75,7 @@ export type Playback = {
   format?: "mp4" | "hls";
   subtitles?: { url: string; label: string; language: string }[];
   checkedAt: string;
+  download?: { url: string; quality?: string; fileSize?: number };
 };
 export const BASE = "";
 export const api = (path: string) => {

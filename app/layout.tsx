@@ -1,13 +1,9 @@
-import type { Metadata, Viewport } from "next";
+import type { Metadata } from "next";
 import { Shell } from "@/components/shell";
+import { AccountProvider } from "@/components/account-context";
+import { PlaybackProvider } from "@/components/playback-context";
+import { LibrarySyncProvider } from "@/components/library-sync";
 import "./globals.css";
-
-export const viewport: Viewport = {
-  width: "device-width",
-  initialScale: 1,
-  maximumScale: 5,
-};
-
 export const metadata: Metadata = {
   title: { default: "PinFlix — A world of stories", template: "%s · PinFlix" },
   description:
@@ -18,7 +14,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body>
-        <Shell>{children}</Shell>
+        <AccountProvider>
+          <LibrarySyncProvider>
+            <PlaybackProvider>
+              <Shell>{children}</Shell>
+            </PlaybackProvider>
+          </LibrarySyncProvider>
+        </AccountProvider>
       </body>
     </html>
   );

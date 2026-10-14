@@ -1,25 +1,21 @@
 import { catalogue } from "@/lib/provider";
+import { QuerySchema, providerQuery } from "@/lib/catalogue-query";
 import { DirectoryList } from "@/components/directory-list";
-
 export const dynamic = "force-dynamic";
-
-export default async function Series({
+export const metadata = { title: "Series A–Z" };
+export default async function Page({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
-  const p = await searchParams;
-  const data = await catalogue({
-    kind: "series",
-    category: p.category,
-  });
-
+  const filters = QuerySchema.parse(await searchParams);
+  const data = await catalogue(providerQuery(filters, "series"));
   return (
     <DirectoryList
-      key={JSON.stringify(p)}
+      key={JSON.stringify(filters)}
       kind="series"
-      initialCategory={p.category || ""}
       initial={data}
+      initialFilters={filters}
     />
   );
 }

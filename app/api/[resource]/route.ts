@@ -20,7 +20,23 @@ const Params = z.object({
   page: z.coerce.number().int().min(1).max(10000).optional(),
   language: z.string().max(30).optional(),
   quality: z.string().max(20).optional(),
-  sort: z.enum(["recent", "title", "year"]).optional(),
+  sort: z
+    .enum(["recent", "title", "title-desc", "year", "year-asc"])
+    .optional(),
+  yearFrom: z.coerce.number().int().min(1888).max(2100).optional(),
+  yearTo: z.coerce.number().int().min(1888).max(2100).optional(),
+  genre: z.string().max(80).optional(),
+  country: z.string().max(80).optional(),
+  letter: z
+    .string()
+    .regex(/^[A-Z#]$/)
+    .optional(),
+  status: z.enum(["ongoing", "completed"]).optional(),
+  universe: z.enum(["marvel", "dc"]).optional(),
+  directory: z
+    .enum(["true"])
+    .transform(() => true)
+    .optional(),
   id: z
     .string()
     .regex(/^(movie|series)-\d+$/)
@@ -64,8 +80,22 @@ export async function GET(
     else if (resource === "playback" && id)
       result = await resolvePlayback(id, season, episode);
     else if (resource === "download" && id) {
+      if (
+        process.env.PINFLIX_DOWNLOADS_AUTHORIZED === "false" ||
+        process.env.CINEPLEX_PLAYBACK_AUTHORIZED === "false"
+      )
+        return NextResponse.json(
+          { error: "Downloads are unavailable for this title." },
+          { status: 403 },
+        );
       const pb = await resolvePlayback(id, season, episode).catch(() => null);
-      if (!pb || pb.status !== "ready" || !pb.url) {
+      if (
+        !pb ||
+        pb.status !== "ready" ||
+        !pb.url ||
+        !pb.download ||
+        pb.format !== "mp4"
+      ) {
         const errorHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -102,12 +132,7 @@ export async function GET(
       const filename = id.startsWith("series-")
         ? `${titleName}_S${season}E${episode}`
         : `${titleName}`;
-      const ext =
-        pb.format === "hls"
-          ? "m3u8"
-          : pb.url?.includes(".mkv")
-            ? "mkv"
-            : "mp4";
+      const ext = pb.url.includes(".mkv") ? "mkv" : "mp4";
       const safeFilename = encodeURIComponent(
         `${filename}.${ext}`.replace(/[/\\?%*:|"<> ]/g, "_"),
       );
@@ -136,25 +161,44 @@ export async function GET(
           const range = req.headers.get("range") || "bytes=0-";
           reqHeaders["Range"] = range;
 
-          const upstream = await safeFetch(mediaTarget, { headers: reqHeaders }, true);
+          const upstream = await safeFetch(
+            mediaTarget,
+            { headers: reqHeaders },
+            true,
+          );
           const headers = new Headers();
           headers.set(
             "Content-Disposition",
             `attachment; filename="${safeFilename}"; filename*=UTF-8''${safeFilename}`,
           );
           let dlType = upstream.headers.get("content-type") || "";
-          if (mediaTarget.includes(".mkv") && (!dlType || dlType.includes("octet-stream"))) {
+          if (
+            mediaTarget.includes(".mkv") &&
+            (!dlType || dlType.includes("octet-stream"))
+          ) {
             dlType = "video/x-matroska";
-          } else if (mediaTarget.includes(".mp4") && (!dlType || dlType.includes("octet-stream"))) {
+          } else if (
+            mediaTarget.includes(".mp4") &&
+            (!dlType || dlType.includes("octet-stream"))
+          ) {
             dlType = "video/mp4";
           }
           if (dlType) headers.set("Content-Type", dlType);
           if (upstream.headers.has("content-length"))
-            headers.set("Content-Length", upstream.headers.get("content-length")!);
+            headers.set(
+              "Content-Length",
+              upstream.headers.get("content-length")!,
+            );
           if (upstream.headers.has("accept-ranges"))
-            headers.set("Accept-Ranges", upstream.headers.get("accept-ranges")!);
+            headers.set(
+              "Accept-Ranges",
+              upstream.headers.get("accept-ranges")!,
+            );
           if (upstream.headers.has("content-range"))
-            headers.set("Content-Range", upstream.headers.get("content-range")!);
+            headers.set(
+              "Content-Range",
+              upstream.headers.get("content-range")!,
+            );
           return new NextResponse(upstream.body, {
             status: upstream.status,
             headers,
@@ -162,49 +206,17 @@ export async function GET(
         } catch {
           return NextResponse.redirect(pb.url);
         }
-      } else if (pb.format === "hls") {
-        try {
-          const cookies = await getCineplexCookies(id, season, episode);
-          const reqHeaders: Record<string, string> = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-            Referer: "http://cineplexbd.net/",
-          };
-          if (cookies) reqHeaders["Cookie"] = cookies;
-          const upstream = await safeFetch(mediaTarget, { headers: reqHeaders }, true);
-          const playlistText = await upstream.text();
-          const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "localhost:3005";
-          const proto = req.headers.get("x-forwarded-proto") || "http";
-          const streamBase = `${proto}://${host}${BASE}/api/stream/?id=${id}&season=${season}&episode=${episode}&url=`;
-          const rewritten = playlistText
-            .split("\n")
-            .map((line) => {
-              const trimmed = line.trim();
-              if (!trimmed) return line;
-              if (trimmed.startsWith("#EXT-X-KEY")) {
-                return trimmed.replace(/URI="([^"]+)"/, (_, uri) => {
-                  const abs = new URL(uri, mediaTarget).href;
-                  return `URI="${streamBase}${encodeURIComponent(abs)}"`;
-                });
-              }
-              if (trimmed.startsWith("#")) return line;
-              const abs = new URL(trimmed, mediaTarget).href;
-              return `${streamBase}${encodeURIComponent(abs)}`;
-            })
-            .join("\n");
-          const headers = new Headers();
-          headers.set(
-            "Content-Disposition",
-            `attachment; filename="${safeFilename}"; filename*=UTF-8''${safeFilename}`,
-          );
-          headers.set("Content-Type", "application/vnd.apple.mpegurl");
-          headers.set("Access-Control-Allow-Origin", "*");
-          return new NextResponse(rewritten, { status: 200, headers });
-        } catch {
-          return NextResponse.redirect(pb.url);
-        }
       }
       return NextResponse.redirect(pb.url);
     } else if (resource === "stream") {
+      if (process.env.CINEPLEX_PLAYBACK_AUTHORIZED === "false")
+        return NextResponse.json(
+          { error: "Playback is unavailable for this title." },
+          { status: 403 },
+        );
+      if (!id)
+        return NextResponse.json({ error: "Missing title." }, { status: 400 });
+      await detail(id, season);
       const targetUrl = p.data.url;
       if (!targetUrl)
         return NextResponse.json({ error: "Missing url." }, { status: 400 });
@@ -218,7 +230,11 @@ export async function GET(
       const range = req.headers.get("range");
       if (range) reqHeaders["Range"] = range;
 
-      const upstream = await safeFetch(targetUrl, { headers: reqHeaders }, true);
+      const upstream = await safeFetch(
+        targetUrl,
+        { headers: reqHeaders },
+        true,
+      );
       const contentType = upstream.headers.get("content-type") || "";
       const isM3u8 =
         targetUrl.includes(".m3u8") ||
@@ -238,7 +254,12 @@ export async function GET(
                 try {
                   abs = new URL(uri, targetUrl).href;
                 } catch {
-                  const safe = uri.split("/").map((s: string) => encodeURIComponent(decodeURIComponent(s))).join("/");
+                  const safe = uri
+                    .split("/")
+                    .map((s: string) =>
+                      encodeURIComponent(decodeURIComponent(s)),
+                    )
+                    .join("/");
                   abs = new URL(safe, targetUrl).href;
                 }
                 return `URI="${BASE}/api/stream/?id=${id || ""}&season=${season || 1}&episode=${episode || 1}&url=${encodeURIComponent(abs)}"`;
@@ -249,7 +270,10 @@ export async function GET(
             try {
               abs = new URL(trimmed, targetUrl).href;
             } catch {
-              const safe = trimmed.split("/").map((s: string) => encodeURIComponent(decodeURIComponent(s))).join("/");
+              const safe = trimmed
+                .split("/")
+                .map((s: string) => encodeURIComponent(decodeURIComponent(s)))
+                .join("/");
               abs = new URL(safe, targetUrl).href;
             }
             return `${BASE}/api/stream/?id=${id || ""}&season=${season || 1}&episode=${episode || 1}&url=${encodeURIComponent(abs)}`;
@@ -267,14 +291,23 @@ export async function GET(
 
       const resHeaders = new Headers();
       let streamType = upstream.headers.get("content-type") || "";
-      if (targetUrl.includes(".mkv") && (!streamType || streamType.includes("octet-stream"))) {
+      if (
+        targetUrl.includes(".mkv") &&
+        (!streamType || streamType.includes("octet-stream"))
+      ) {
         streamType = "video/x-matroska";
-      } else if (targetUrl.includes(".mp4") && (!streamType || streamType.includes("octet-stream"))) {
+      } else if (
+        targetUrl.includes(".mp4") &&
+        (!streamType || streamType.includes("octet-stream"))
+      ) {
         streamType = "video/mp4";
       }
       if (streamType) resHeaders.set("Content-Type", streamType);
       if (upstream.headers.has("content-length"))
-        resHeaders.set("Content-Length", upstream.headers.get("content-length")!);
+        resHeaders.set(
+          "Content-Length",
+          upstream.headers.get("content-length")!,
+        );
       if (upstream.headers.has("accept-ranges"))
         resHeaders.set("Accept-Ranges", upstream.headers.get("accept-ranges")!);
       if (upstream.headers.has("content-range"))

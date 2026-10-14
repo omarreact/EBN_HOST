@@ -1,459 +1,529 @@
 "use client";
-
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useCallback } from "react";
-import { Search, X, ArrowUpRight, Menu, Play, ChevronDown } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  Search,
+  X,
+  ArrowUpRight,
+  Menu,
+  Play,
+  User,
+  LogOut,
+  Bookmark,
+  Clock,
+  ChevronDown,
+  Film,
+  Tv,
+  Home,
+} from "lucide-react";
 import { api, type Title } from "@/lib/model";
+import { titleHref } from "@/lib/curation";
 import { Artwork } from "./artwork";
 import { read, write } from "@/lib/storage";
-
+import { useAccount } from "./account-context";
+export function Brand() {
+  return (
+    <span className="brand">
+      <span className="brand-mark">
+        <Play size={17} fill="currentColor" />
+      </span>
+      pin<span className="brand-accent">flix</span>
+      <i />
+    </span>
+  );
+}
+const links = [
+  ["/", "Home"],
+  ["/movies/", "Movies"],
+  ["/series/", "TV Series"],
+  ["/my-list/", "My List"],
+  ["/services/", "Services"],
+  ["/about/", "About"],
+];
 export function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { user, preferences, logout } = useAccount();
   const [open, setOpen] = useState(false);
   const [menu, setMenu] = useState(false);
-  const [catOpen, setCatOpen] = useState(false);
+  const [profile, setProfile] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
   const [q, setQ] = useState("");
   const [items, setItems] = useState<Title[]>([]);
   const [recent, setRecent] = useState<string[]>([]);
   const [active, setActive] = useState(-1);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
   const input = useRef<HTMLInputElement>(null);
-
-  // Focus input and lock body scrolling when search overlay opens
-  useEffect(() => {
-    if (open) {
-      document.body.style.overflow = "hidden";
-      const timer = setTimeout(() => {
-        input.current?.focus();
-      }, 60);
-      return () => {
-        clearTimeout(timer);
-        document.body.style.overflow = "";
-      };
-    } else {
-      document.body.style.overflow = "";
-    }
-  }, [open]);
-
-  const openSearch = useCallback(() => {
-    setMenu(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const dialog = useRef<HTMLDivElement>(null);
+  const dropdown = useRef<HTMLDivElement>(null);
+  const openSearch = () => {
     const r = read<unknown>("search", []);
     setRecent(
       Array.isArray(r)
-        ? r.filter((x): x is string => typeof x === "string").slice(0, 8)
+        ? r.filter((x): x is string => typeof x === "string").slice(0, 6)
         : [],
     );
-    setOpen(true);
-  }, []);
-
-  const closeSearch = useCallback(() => {
-    setOpen(false);
     setQ("");
     setItems([]);
-    input.current?.blur();
-  }, []);
-
-  // Global search shortcut: Pressing "/" opens search
+    setActive(-1);
+    setOpen(true);
+    setMenu(false);
+  };
+  const closeSearch = () => {
+    setOpen(false);
+    trigger.current?.focus();
+  };
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (e.key === "/" && !["INPUT", "TEXTAREA", "SELECT"].includes(tag) && !open) {
+    const sync = () => setScrolled(window.scrollY > 35);
+    sync();
+    window.addEventListener("scroll", sync, { passive: true });
+    return () => window.removeEventListener("scroll", sync);
+  }, []);
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (
+        e.key === "/" &&
+        !(e.target as HTMLElement).closest(
+          "input,textarea,select,[contenteditable=true]",
+        )
+      ) {
         e.preventDefault();
-        openSearch();
+        trigger.current?.click();
+      }
+      if (e.key === "Escape") {
+        setMenu(false);
+        setProfile(false);
       }
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open, openSearch]);
-
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, []);
+  useEffect(() => {
+    if (!open) return;
+    input.current?.focus();
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [open]);
+  useEffect(() => {
+    if (!profile) return;
+    const handle = (e: PointerEvent) => {
+      if (!dropdown.current?.contains(e.target as Node)) setProfile(false);
+    };
+    document.addEventListener("pointerdown", handle);
+    return () => document.removeEventListener("pointerdown", handle);
+  }, [profile]);
   useEffect(() => {
     if (q.trim().length < 2) return;
     const controller = new AbortController();
-    const timer = setTimeout(() => {
+    const timer = setTimeout(async () => {
       setLoading(true);
-      fetch(api("/suggest?q=" + encodeURIComponent(q)), {
-        signal: controller.signal,
-      })
-        .then((r) => r.json())
-        .then((d) => {
-          setItems(d.items || []);
-          setActive(-1);
-        })
-        .catch(() => {})
-        .finally(() => setLoading(false));
+      setError(false);
+      try {
+        const r = await fetch(api("/suggest?q=" + encodeURIComponent(q)), {
+          signal: controller.signal,
+        });
+        if (!r.ok) throw new Error();
+        const d = await r.json();
+        if (!controller.signal.aborted) setItems(d.items || []);
+      } catch {
+        if (!controller.signal.aborted) {
+          setItems([]);
+          setError(true);
+        }
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
     }, 250);
     return () => {
       clearTimeout(timer);
       controller.abort();
     };
   }, [q]);
-
   function search(value = q) {
-    const next = (value || q).trim();
-    if (!next) return;
-    write(
-      "search",
-      [next, ...recent.filter((x) => x !== next)].slice(0, 8),
-    );
-    closeSearch();
-    router.push("/search?q=" + encodeURIComponent(next));
+    const term = value.trim();
+    if (!term) return;
+    write("search", [term, ...recent.filter((x) => x !== term)].slice(0, 6));
+    setOpen(false);
+    router.push("/search/?q=" + encodeURIComponent(term));
   }
-
-  function submitSearch(event?: React.FormEvent) {
-    event?.preventDefault();
-    search();
-  }
-
+  const name = user?.name || preferences.name;
   return (
     <>
       <a className="skip" href="#content">
         Skip to content
       </a>
-      <header className="header">
-        <Link href="/" className="brand" aria-label="PinFlix home">
-          <span className="brand-mark">
-            <Play size={15} fill="currentColor" />
-          </span>
-          pin<span>flix</span>
-          <i />
+      <header
+        className={`header ${pathname === "/" && !scrolled ? "header-transparent" : "header-solid"}`}
+      >
+        <Link href="/" aria-label="PinFlix home">
+          <Brand />
         </Link>
         <nav
+          id="main-navigation"
           aria-label="Main navigation"
-          className={menu ? "nav-links mobile-open" : "nav-links"}
+          className={`nav-links ${menu ? "mobile-open" : ""}`}
         >
-          {/* Quick search button inside mobile drawer */}
-          <button
-            type="button"
-            className="mobile-search-trigger"
-            onClick={openSearch}
-          >
-            <Search size={16} />
-            <span>Search catalogue...</span>
-          </button>
-
-          <Link
-            href="/"
-            onClick={() => { setMenu(false); setCatOpen(false); }}
-            className={pathname === "/" ? "active" : ""}
-          >
-            Home
-          </Link>
-          <Link
-            href="/movies"
-            onClick={() => { setMenu(false); setCatOpen(false); }}
-            className={pathname === "/movies" ? "active" : ""}
-          >
-            Movies
-          </Link>
-          <Link
-            href="/series"
-            onClick={() => { setMenu(false); setCatOpen(false); }}
-            className={pathname === "/series" ? "active" : ""}
-          >
-            TV Series
-          </Link>
-          <Link
-            href="/my-list"
-            onClick={() => { setMenu(false); setCatOpen(false); }}
-            className={pathname === "/my-list" || pathname === "/library" ? "active" : ""}
-          >
-            My List
-          </Link>
-          <div className="nav-item-dropdown">
-            <button
-              type="button"
-              className="nav-dropdown-trigger"
-              onClick={() => setCatOpen(!catOpen)}
-              aria-expanded={catOpen}
+          {links.map(([url, label]) => (
+            <Link
+              key={url}
+              href={url}
+              onClick={() => setMenu(false)}
+              aria-current={
+                (url === "/"
+                  ? pathname === "/"
+                  : pathname.startsWith(url.replace(/\/$/, "")))
+                  ? "page"
+                  : undefined
+              }
             >
-              Categories <ChevronDown size={14} className={catOpen ? "rotate-180" : ""} />
-            </button>
-            <div className={`nav-dropdown-menu ${catOpen ? "open" : ""}`}>
-              <div className="dropdown-col">
-                <span className="dropdown-title">MOVIES</span>
-                <Link href="/movies?category=4K+Movies" onClick={() => { setCatOpen(false); setMenu(false); }}>
-                  4K Movies
-                </Link>
-                <Link href="/movies?category=Dual+Audio" onClick={() => { setCatOpen(false); setMenu(false); }}>
-                  Dual Audio
-                </Link>
-                <Link href="/movies?category=Hindi+Dubbed" onClick={() => { setCatOpen(false); setMenu(false); }}>
-                  Hindi Dubbed
-                </Link>
-                <Link href="/movies?category=English+Movies" onClick={() => { setCatOpen(false); setMenu(false); }}>
-                  English Movies
-                </Link>
-                <Link href="/movies?category=Animation" onClick={() => { setCatOpen(false); setMenu(false); }}>
-                  Animation
-                </Link>
-                <Link href="/movies?category=South+Hindi+Dubbed" onClick={() => { setCatOpen(false); setMenu(false); }}>
-                  South Hindi Dubbed
-                </Link>
-              </div>
-              <div className="dropdown-col">
-                <span className="dropdown-title">SERIES</span>
-                <Link href="/series?category=English+Series" onClick={() => { setCatOpen(false); setMenu(false); }}>
-                  English Series
-                </Link>
-                <Link href="/series?category=Hindi+Dubbed+Series" onClick={() => { setCatOpen(false); setMenu(false); }}>
-                  Hindi Dubbed Series
-                </Link>
-                <Link href="/series?category=Korean+Drama" onClick={() => { setCatOpen(false); setMenu(false); }}>
-                  Korean Drama
-                </Link>
-                <Link href="/series?category=Anime" onClick={() => { setCatOpen(false); setMenu(false); }}>
-                  Anime
-                </Link>
-              </div>
-            </div>
-          </div>
+              {label}
+            </Link>
+          ))}
           <Link
-            href="/services"
-            onClick={() => { setMenu(false); setCatOpen(false); }}
-            className={pathname === "/services" ? "active" : ""}
+            href="/my-list/?tab=continue-watching"
+            className="mobile-only"
+            onClick={() => setMenu(false)}
           >
-            Services
-          </Link>
-          <Link
-            href="/about"
-            onClick={() => { setMenu(false); setCatOpen(false); }}
-            className={pathname === "/about" ? "active" : ""}
-          >
-            About
+            Continue Watching
           </Link>
         </nav>
         <div className="nav-right">
           <button
+            className="search-trigger"
             aria-label="Search catalogue (press /)"
-            className="icon-button flex items-center gap-1.5"
+            title="Search · /"
             onClick={openSearch}
-            title="Search (press /)"
+            ref={trigger}
           >
-            <Search size={19} />
+            <Search size={18} />
+            <span>Find a story</span>
+            <kbd>/</kbd>
           </button>
-          <span className="edition">EBN EDITION</span>
+          <span className="nav-divider" />
+          <div className="profile-nav" ref={dropdown}>
+            <button
+              className={`avatar avatar-${preferences.avatar}`}
+              aria-label="Open profile menu"
+              aria-expanded={profile}
+              onClick={() => setProfile((p) => !p)}
+            >
+              {name.charAt(0).toUpperCase()}
+            </button>
+            {profile && (
+              <div className="profile-dropdown">
+                <div className="profile-dropdown-heading">
+                  <strong>{name}</strong>
+                  <small>{user ? "Your account" : "Your local profile"}</small>
+                </div>
+                <Link href="/profile/" onClick={() => setProfile(false)}>
+                  <User size={16} /> Profile & preferences
+                </Link>
+                <Link href="/my-list/" onClick={() => setProfile(false)}>
+                  <Bookmark size={16} /> Watch Later
+                </Link>
+                <Link
+                  href="/my-list/?tab=continue-watching"
+                  onClick={() => setProfile(false)}
+                >
+                  <Clock size={16} /> Continue Watching
+                </Link>
+                {user ? (
+                  <button
+                    onClick={() => {
+                      void logout();
+                      setProfile(false);
+                    }}
+                  >
+                    <LogOut size={16} /> Sign out
+                  </button>
+                ) : (
+                  <Link href="/login/" onClick={() => setProfile(false)}>
+                    <ArrowUpRight size={16} /> Sign in
+                  </Link>
+                )}
+              </div>
+            )}
+          </div>
           <button
             className="menu-toggle icon-button"
-            aria-label="Toggle navigation"
-            onClick={() => setMenu(!menu)}
+            aria-label={menu ? "Close navigation" : "Open navigation"}
+            aria-expanded={menu}
+            aria-controls="main-navigation"
+            onClick={() => setMenu((m) => !m)}
           >
-            {menu ? <X size={20} /> : <Menu size={20} />}
+            {menu ? <X size={21} /> : <Menu size={21} />}
           </button>
-          <Link className="avatar" href="/my-list" aria-label="My List and Profile">
-            P
-          </Link>
         </div>
       </header>
-
-      {/* Touch-to-dismiss backdrop for mobile navigation menu */}
-      {menu && (
-        <div
-          className="mobile-backdrop"
-          onClick={() => {
-            setMenu(false);
-            setCatOpen(false);
-          }}
-          aria-hidden="true"
-        />
-      )}
-
       <main id="content">{children}</main>
-      
-      {/* Footer */}
-      <footer className="footer border-t border-white/10 mt-20 pt-16 pb-12 px-6 sm:px-12 bg-[#0a0d0b]">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-start justify-between gap-10 pb-12 border-b border-white/10">
-          <div>
-            <Link href="/" className="brand">
-              <span className="brand-mark">
-                <Play size={15} fill="currentColor" />
-              </span>
-              pin<span>flix</span>
-              <i />
+      <footer className="footer">
+        <div className="footer-main">
+          <div className="footer-brand">
+            <Link href="/" aria-label="PinFlix home">
+              <Brand />
             </Link>
-            <p className="text-sm text-[#9ea799] mt-3 max-w-sm">
-              Cinematic entertainment streaming platform engineered for pristine playback and instant discovery.
+            <h2>
+              A world of stories.
+              <br />
+              <span>All in one place.</span>
+            </h2>
+            <p>
+              Discover your next favourite movie or series.
+              <br />
+              Make every movie night your own.
             </p>
           </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-8 text-xs">
-            <div className="flex flex-col gap-2.5">
-              <span className="text-[10px] font-bold tracking-wider text-[#88b596] uppercase">Navigation</span>
-              <Link href="/" className="text-white/70 hover:text-white transition-colors">Home</Link>
-              <Link href="/movies" className="text-white/70 hover:text-white transition-colors">Movies A–Z</Link>
-              <Link href="/series" className="text-white/70 hover:text-white transition-colors">TV Series A–Z</Link>
-              <Link href="/my-list" className="text-white/70 hover:text-white transition-colors">My List & Progress</Link>
+          <div className="footer-links">
+            <div>
+              <span>EXPLORE</span>
+              <Link href="/movies/">Movies A–Z</Link>
+              <Link href="/series/">TV Series A–Z</Link>
+              <Link href="/search/">Search the collection</Link>
+              <Link href="/my-list/">Your library</Link>
             </div>
-
-            <div className="flex flex-col gap-2.5">
-              <span className="text-[10px] font-bold tracking-wider text-[#88b596] uppercase">Platform</span>
-              <Link href="/about" className="text-white/70 hover:text-white transition-colors">About PinFlix</Link>
-              <Link href="/services" className="text-white/70 hover:text-white transition-colors">Our Services</Link>
-              <Link href="/search" className="text-white/70 hover:text-white transition-colors">Search Engine</Link>
+            <div>
+              <span>PINFLIX</span>
+              <Link href="/about/">About us</Link>
+              <Link href="/services/">Our services</Link>
+              <Link href="/profile/">Your preferences</Link>
+              <Link href="/login/">Sign in</Link>
             </div>
-
-            <div className="flex flex-col gap-2.5">
-              <span className="text-[10px] font-bold tracking-wider text-[#88b596] uppercase">Legal</span>
-              <Link href="/privacy-policy" className="text-white/70 hover:text-white transition-colors">Privacy Policy</Link>
-              <Link href="/terms-and-conditions" className="text-white/70 hover:text-white transition-colors">Terms of Service</Link>
+            <div>
+              <span>THE DETAILS</span>
+              <Link href="/privacy-policy/">Privacy policy</Link>
+              <Link href="/terms-and-conditions/">Terms & conditions</Link>
+              <a href="#content">
+                Back to top <ArrowUpRight size={12} />
+              </a>
             </div>
           </div>
         </div>
-
-        <div className="max-w-7xl mx-auto pt-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-white/40">
-          <span>© {new Date().getFullYear()} PinFlix. All rights reserved. EBN Edition.</span>
-          <span>Adaptive HLS • Dual Audio • HTTP Range Proxied</span>
+        <div className="footer-bottom">
+          <span>© {new Date().getFullYear()} PinFlix</span>
+          <span className="footer-signature">
+            <i /> YOUR NEXT STORY STARTS HERE
+          </span>
+          <span>Made for the love of stories.</span>
         </div>
       </footer>
-
+      <nav className="bottom-nav" aria-label="Quick navigation">
+        {[
+          ["/", "Home", Home],
+          ["/movies", "Movies", Film],
+          ["/series", "Series", Tv],
+          ["/my-list", "My List", Bookmark],
+        ].map(([href, label, Icon]) => {
+          const C = Icon as typeof Home;
+          return (
+            <Link
+              key={href as string}
+              href={href as string}
+              aria-current={
+                pathname.replace(/\/$/, "") === (href === "/" ? "" : href)
+                  ? "page"
+                  : undefined
+              }
+            >
+              <C size={19} />
+              <span>{label as string}</span>
+            </Link>
+          );
+        })}
+      </nav>
       {open && (
         <div
           className="search-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Search catalogue"
-          onClick={(e) => {
+          role="presentation"
+          onPointerDown={(e) => {
             if (e.target === e.currentTarget) closeSearch();
           }}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") closeSearch();
-            if (e.key === "Tab") {
-              const els = Array.from(
-                e.currentTarget.querySelectorAll<HTMLElement>("button,input,a"),
-              );
-              const first = els[0],
-                last = els.at(-1);
-              if (e.shiftKey && document.activeElement === first) {
-                e.preventDefault();
-                last?.focus();
-              } else if (!e.shiftKey && document.activeElement === last) {
-                e.preventDefault();
-                first?.focus();
-              }
-            }
-          }}
         >
-          <form className="search-panel" onSubmit={submitSearch}>
-            <div className="search-input">
-              <Search className="search-prefix-icon" size={20} />
+          <div
+            className="search-dialog"
+            ref={dialog}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="search-label"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                closeSearch();
+              }
+              if (e.key === "Tab") {
+                const els = Array.from(
+                  e.currentTarget.querySelectorAll<HTMLElement>(
+                    "button,input,a",
+                  ),
+                ).filter((el) => !el.hasAttribute("disabled"));
+                const first = els[0],
+                  last = els.at(-1);
+                if (e.shiftKey && document.activeElement === first) {
+                  e.preventDefault();
+                  last?.focus();
+                } else if (!e.shiftKey && document.activeElement === last) {
+                  e.preventDefault();
+                  first?.focus();
+                }
+              }
+            }}
+          >
+            <div className="search-dialog-heading">
+              <span id="search-label">FIND YOUR NEXT STORY</span>
+              <button
+                className="icon-button"
+                onClick={closeSearch}
+                aria-label="Close search"
+              >
+                <X size={19} />
+              </button>
+            </div>
+            <form
+              className="search-box"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (active >= 0 && items[active]) {
+                  setOpen(false);
+                  router.push(titleHref(items[active]));
+                } else search();
+              }}
+            >
+              <Search size={24} />
               <input
                 ref={input}
                 value={q}
-                onChange={(e) => {
-                  setQ(e.target.value);
-                  if (e.target.value.trim().length < 2) setItems([]);
-                }}
-                placeholder="Search movies, series, cast..."
-                aria-label="Search titles"
+                placeholder="Movies, series, a new obsession…"
+                aria-label="Search movies and series"
                 role="combobox"
                 aria-expanded={items.length > 0}
-                aria-controls="suggestions"
+                aria-controls="search-suggestions"
+                aria-autocomplete="list"
                 aria-activedescendant={
-                  active >= 0 ? "suggestion-" + active : undefined
+                  active >= 0 ? `suggestion-${active}` : undefined
                 }
+                onChange={(e) => {
+                  setQ(e.target.value);
+                  setItems([]);
+                  setActive(-1);
+                  setLoading(false);
+                }}
                 onKeyDown={(e) => {
                   if (e.key === "ArrowDown") {
                     e.preventDefault();
-                    setActive((a) => Math.min(items.length - 1, a + 1));
+                    setActive((i) => Math.min(items.length - 1, i + 1));
                   }
                   if (e.key === "ArrowUp") {
                     e.preventDefault();
-                    setActive((a) => Math.max(-1, a - 1));
-                  }
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    if (active >= 0 && items[active]) {
-                      closeSearch();
-                      const t = items[active];
-                      router.push(t.kind === "series" ? "/series/" + t.id : "/movies/" + t.id);
-                    } else search();
+                    setActive((i) => Math.max(-1, i - 1));
                   }
                 }}
               />
-              {q.length > 0 && (
+              {q && (
                 <button
                   type="button"
-                  className="search-clear-btn"
-                  aria-label="Clear search query"
+                  aria-label="Clear search"
                   onClick={() => {
                     setQ("");
                     setItems([]);
+                    setActive(-1);
                     input.current?.focus();
                   }}
                 >
-                  <X size={15} />
+                  <X size={18} />
                 </button>
               )}
-              <button
-                type="button"
-                className="search-close-btn"
-                aria-label="Close search"
-                onClick={closeSearch}
-              >
-                Cancel
-              </button>
-            </div>
-            {loading && <p className="muted search-loading">Searching catalogue…</p>}
-            <div id="suggestions" role="listbox">
-              {items.map((t, i) => {
-                const targetHref = t.kind === "series" ? `/series/${t.id}` : `/movies/${t.id}`;
-                return (
-                  <Link
-                    id={"suggestion-" + i}
-                    role="option"
-                    aria-selected={active === i}
-                    className={"suggestion " + (active === i ? "selected" : "")}
-                    href={targetHref}
-                    key={t.id}
-                    onClick={() => {
-                      closeSearch();
-                    }}
-                  >
-                    <Artwork src={t.poster} alt={t.title} />
-                    <div className="suggestion-info">
-                      <strong>{t.title}</strong>
-                      <small>
-                        {t.year} · {t.kind === "series" ? "Series" : "Movie"}
-                        {t.category ? ` · ${t.category}` : ""}
-                      </small>
-                    </div>
-                    <ArrowUpRight size={17} className="suggestion-arrow" />
-                  </Link>
-                );
-              })}
-            </div>
-            {q.length > 1 && (
-              <button type="button" className="text-button search-all-results-btn" onClick={() => search()}>
-                See all results for “{q}” <ArrowUpRight size={16} />
-              </button>
-            )}
-            {!q && (
-              <div className="search-recents-section">
-                <p className="eyebrow">RECENT SEARCHES</p>
-                <div className="chips">
-                  {recent.length ? (
-                    recent.map((s) => (
-                      <button
-                        type="button"
-                        key={s}
-                        onClick={() => {
-                          setQ(s);
-                          search(s);
-                        }}
-                      >
-                        {s}
-                      </button>
-                    ))
-                  ) : (
-                    <p className="muted">
-                      Search movies, series, languages or years.
-                    </p>
+            </form>
+            {q.trim().length < 2 ? (
+              <div className="search-recent">
+                <div className="small-label">
+                  {recent.length
+                    ? "RECENT SEARCHES"
+                    : "START WITH A LITTLE CURIOSITY"}
+                  {recent.length > 0 && (
+                    <button
+                      onClick={() => {
+                        write("search", []);
+                        setRecent([]);
+                      }}
+                    >
+                      Clear
+                    </button>
                   )}
                 </div>
+                {recent.length ? (
+                  recent.map((r) => (
+                    <button key={r} onClick={() => search(r)}>
+                      <Clock size={15} />
+                      {r}
+                      <ArrowUpRight size={14} />
+                    </button>
+                  ))
+                ) : (
+                  <p>
+                    Search the PinFlix collection by title. Your next favourite
+                    is waiting.
+                  </p>
+                )}
               </div>
+            ) : (
+              <>
+                <div role="status" className="search-status">
+                  {loading
+                    ? "Finding stories…"
+                    : error
+                      ? "The collection could not be reached. Try again."
+                      : items.length
+                        ? `${items.length} stories found`
+                        : "No matching stories. Try another title."}
+                </div>
+                <div
+                  id="search-suggestions"
+                  role="listbox"
+                  aria-label="Suggested titles"
+                  className="search-suggestions"
+                >
+                  {items.map((t, i) => (
+                    <Link
+                      key={t.id}
+                      id={`suggestion-${i}`}
+                      href={titleHref(t)}
+                      role="option"
+                      aria-selected={active === i}
+                      className={active === i ? "selected" : ""}
+                      onClick={() => setOpen(false)}
+                    >
+                      <Artwork src={t.poster} alt="" />
+                      <span>
+                        <strong>{t.title}</strong>
+                        <small>
+                          {t.kind === "series" ? "TV Series" : "Movie"}
+                          {t.year ? ` · ${t.year}` : ""}
+                        </small>
+                      </span>
+                      <ArrowUpRight size={18} />
+                    </Link>
+                  ))}
+                </div>
+                <button className="search-all" onClick={() => search()}>
+                  See all results for “{q}” <ArrowUpRight size={16} />
+                </button>
+              </>
             )}
-          </form>
+            <div className="search-hints">
+              <span>
+                <kbd>↑</kbd>
+                <kbd>↓</kbd> to explore <kbd>↵</kbd> to open
+              </span>
+              <span>
+                <kbd>esc</kbd> to close <ChevronDown size={12} />
+              </span>
+            </div>
+          </div>
         </div>
       )}
     </>

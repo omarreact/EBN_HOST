@@ -20,13 +20,31 @@ export async function generateMetadata({
 
 export default async function MovieDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | undefined>>;
 }) {
+  const query = await searchParams;
+  const season = Math.max(
+    1,
+    Math.min(999, Math.floor(Number(query.season) || 1)),
+  );
+  const requestedEpisode = Math.max(
+    1,
+    Math.min(10000, Math.floor(Number(query.episode) || 1)),
+  );
   const { id: rawId } = await params;
   const id = rawId.startsWith("movie-") ? rawId : `movie-${rawId}`;
-  const d = await detail(id).catch(() => null);
+  const d = await detail(id, season).catch(() => null);
   if (!d) notFound();
   const capability = await resolvePlayback(id);
-  return <DetailView initial={d} initialPlayback={capability} />;
+  return (
+    <DetailView
+      initial={d}
+      initialPlayback={capability}
+      initialEpisode={query.episode ? requestedEpisode : undefined}
+      resumeRequested={query.resume === "1"}
+    />
+  );
 }

@@ -38,6 +38,9 @@ test("player renders inline video with accessible controls, no iframe", () => {
   ])
     assert.ok(html.includes(label));
   assert.ok(!html.includes("<iframe"));
+  assert.ok(html.includes("Source quality"));
+  assert.ok(!html.includes(">1080p</option>"));
+  assert.ok(!html.includes("Download video"));
 });
 test("seek positions clamp and time formatting handles unknown duration", () => {
   assert.equal(clampSeek(-10, 100), 0);

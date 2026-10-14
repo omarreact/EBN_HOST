@@ -5,6 +5,17 @@ export const metadata = {
   description: "Your saved movies, series, and continue watching progress.",
 };
 
-export default function MyListPage() {
-  return <Library />;
+export default async function MyListPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | undefined>>;
+}) {
+  const p = await searchParams;
+  return (
+    <Library
+      initialTab={
+        p.tab === "continue-watching" ? "continue-watching" : "watch-later"
+      }
+    />
+  );
 }
