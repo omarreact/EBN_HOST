@@ -13,7 +13,7 @@ test("poster sampler chooses the dominant vibrant hue over grayscale", () => {
     45, 45, 45, 255, 0, 0, 0, 255,
   ]);
   const dominant = dominantPosterRgb(pixels);
-  assert.ok(dominant && dominant[0] > dominant[1] * 2);
+  assert.ok(dominant && dominant[2] > dominant[0] && dominant[2] >= dominant[1], "the selected hue should become a cool ambient blue");
   assert.equal(dominantPosterRgb(new Uint8ClampedArray([30, 30, 30, 255])), null);
 });
 
