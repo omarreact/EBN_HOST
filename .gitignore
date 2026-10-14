@@ -1,8 +1,8 @@
-.deploy/
-node_modules/
 .env
 .env.*
-!.env.example
-tmp/
-.next/
-*.tsbuildinfo
+*.pem
+*.key
+*.p12
+*.pfx
+**/*.log
+**/.DS_Store

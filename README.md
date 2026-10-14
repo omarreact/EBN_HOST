@@ -1,53 +1,50 @@
-# PinFlix — a world of stories
+# PinFlix — cPanel production branch
 
-A cinematic Next.js movie and TV catalogue with seven homepage sections, fast text-first directories, unified search, personal watchlists, and a persistent in-page player.
+This **cpanel-release** branch is isolated from Next.js **main** and the Vercel production project.
 
-The UI uses a Obsidian Frost charcoal design system with cool periwinkle and teal accents, locally bundled Inter fonts, responsive discovery rails, and desktop/tablet/mobile layouts. It preserves the supplied provider integration and never presents unavailable streams as playable.
+## One-time source upload to GitHub (not cPanel)
 
-## Start
+The user's working PHP/cPanel application has already been uploaded to hosting.
+The GitHub release branch is initially created with deployment infrastructure only.
+Unzip the previously provided **PinFlix-GitHub-AutoDeploy-FTPS-Kit.zip**, then
+copy its **site/** directory to the root of **this branch** using GitHub's
+file uploader or GitHub Desktop. Preserve every file and its relative path.
 
-Requires **Node.js 24** and npm.
+The workflow validates the exact 14 original playback, API, CDN,
+catalogue and base-style file SHA-256 values. It will **refuse to deploy** if
+any are missing or modified. Cosmetic updates belong in `site/index.html`,
+`site/css/cinematic-polish.css` and `site/js/cinematic-polish.js`.
 
-```sh
-npm ci
-npm run dev
-```
+## One-time credentials setup
 
-Open http://localhost:3000. Guest watchlists and progress work on this device without account configuration.
+In the GitHub repository Settings > Secrets and variables > Actions,
+add **repository secrets**:
 
-```sh
-npm run typecheck
-npm run lint
-npm test
-npm run build
-npm start
-```
+- CPANEL_FTP_HOST — FTP server hostname, never an HTTP URL
+- CPANEL_FTP_USERNAME — restricted cPanel subdomain FTP user
+- CPANEL_FTP_PASSWORD — corresponding password
+- CPANEL_FTP_REMOTE_DIR — directory from FTP account root, ending in / (often ./)
 
-## Included
+Use a dedicated FTP account limited to the **PinFlix subdomain document root**,
+with explicit FTPS and a valid TLS certificate. Do not paste passwords into
+GitHub files, issues, or ChatGPT conversations.
 
-- Cinematic homepage: featured carousel, latest movies, supplied promotional video with fallback, latest series, Marvel/DC collections, decade browsing, rediscovery picks.
-- `/movies` and `/series`: text-only lists with URL-preserved search/filter/sort state and server-side pagination.
-- Movie and series detail pages: source-gated in-page playback, season/episode selection, resume progress, and related titles.
-- Shared player: MP4/HLS, actual stream track menus, seek/speed/volume controls, fullscreen, theater mode, persistent mini-player, and supported picture-in-picture.
-- `/my-list`: Watch Later and Continue Watching, with local persistence and removal controls.
-- `/login` and `/profile`: guest preferences and optional Firebase email/password accounts with explicit library-merge choices.
-- About, services, privacy, and terms pages.
+Optionally set a `cpanel-production` GitHub environment with protections.
+**Only after uploading and verifying `site/` and adding secrets,** set
+Actions repository variable `CPANEL_DEPLOY_ENABLED=true`.
 
-## Integration status
+Then commit a safe cosmetic change to this branch to trigger the pipeline,
+or use workflow dispatch when available in your GitHub Actions UI.
 
-Provider playback and downloads are disabled unless their respective approval settings are supplied. The optional Firebase account/sync service needs project configuration. The supplied promotional-video URL returned HTTP 403 during verification; its poster fallback is implemented.
+The uploader uses incremental FTPS from **site/** only; it never intentionally
+clears the entire server directory. Always maintain a cPanel backup.
+A deployment cannot be guaranteed until the FTPS settings and hosting
+connectivity are tested.
 
-Player controls were browser-tested with a generated local MP4 fixture. Live provider playback, configured Firebase accounts, and an actual production domain were not verified. No deployment was performed by this ZIP-edit task.
+Vercel serves the separate Next.js application; its production configuration
+is not changed by this branch.
 
-See **[UI_SETUP.md](UI_SETUP.md)** for configuration and deployment steps and **[UI_IMPLEMENTATION.md](UI_IMPLEMENTATION.md)** for the implementation and verification report.
+## GitHub links
 
-## Source structure
-
-- `app/` — App Router pages and API routes.
-- `components/` — reusable discovery, account, library, and playback components.
-- `lib/` — schemas, catalogue filters, preferences, storage, account adapter, provider normalization.
-- `data/` — supplied catalogue snapshot and artwork references.
-- `public/` — bundled artwork and licensed Inter font files.
-- `tests/` — player, provider, directory, search, and library-merge tests.
-
-The original legacy deployment files remain for compatibility. Normal operation uses standard Next.js scripts. Do not place source under a publicly served document root.
+- Branch: https://github.com/omarreact/PinFlix_Development/tree/cpanel-release
+- Workflow: .github/workflows/cpanel-ftps.yml

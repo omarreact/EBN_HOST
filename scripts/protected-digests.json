@@ -1,0 +1,16 @@
+{
+  "css/styles.css": "902807a38bc8bd56a4229587a2a083bcd09a1841588ec401b18d0f7b554e2488",
+  "data/catalogue.js": "0649598e91d4fb7164ea1a0c78ee768931217d7992afdec4bfd25798632f4023",
+  "data/catalogue.json": "566decfa802b324ab4e292eebae361f38ce10be75b3f941c29be38e5a3c9ac65",
+  "js/api.js": "cd09df6dbddd2d89a4dfd396ff0563a8b7c8f5c5db097042e4b2bd401f812740",
+  "js/app.bundle.js": "8d0391b915940782a995a7cf998a64eb38023a6013afb79703ff06e245263628",
+  "js/app.js": "d9ffe8233f9be39d714d9d2452443e0f94953cfdf7965e043cb71bae80fb4bcd",
+  "js/artwork.js": "ac6bea3295c5e8d2263f89c843ab59eac98c9306fccea684c1760ef72132b8bf",
+  "js/icons.js": "31371b0d7357733b7f6ac6e734ab60007e8e0eacb98cda8dfee385b897eea7a3",
+  "js/player.js": "4975a27ee1f9a7ff3cc45b29b00683856184f9e9713e7e9873ed68ce409518b6",
+  "js/storage.js": "2f312012ecfff533ff1a041cd1376a45a01f4f0abe31d7f1c7f8878ff12a4a55",
+  "lib/icons.js": "31371b0d7357733b7f6ac6e734ab60007e8e0eacb98cda8dfee385b897eea7a3",
+  ".htaccess": "1b110cd299ff619f6af790c2fc79fa1fe63d567ebac9ca333397d041e0c730dd",
+  "api.php": "d3413c4833cb0fce1d4e761b0f4375ada57ec84c9df6b6ea2b690206f2a51ab1",
+  "README.txt": "8c7b70683a2b990d6bb0c1ff8c5333fa5d489d6483286101c48f652c55de9cbf"
+}

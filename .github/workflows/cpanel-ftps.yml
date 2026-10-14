@@ -1,0 +1,72 @@
+name: PinFlix cPanel — verify and deploy (FTPS)
+
+on:
+  push:
+    branches: [cpanel-release]
+    paths:
+      - "site/**"
+      - "scripts/**"
+      - ".github/workflows/cpanel-ftps.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pinflix-cpanel-production
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify original streaming integration untouched
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate release files and original source digests
+        run: python3 scripts/verify-preserved.py
+      - name: Check cosmetic JavaScript
+        run: node --check site/js/cinematic-polish.js
+      - name: Check PHP gateway syntax
+        run: php -l site/api.php
+      - name: Confirm original streaming dependencies and UI includes
+        shell: bash
+        run: |
+          grep -Fq 'cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js' site/index.html
+          grep -Fq 'js/app.bundle.js' site/index.html
+          grep -Fq 'css/cinematic-polish.css' site/index.html
+          grep -Fq 'js/cinematic-polish.js' site/index.html
+  deploy:
+    name: Upload approved site files to cPanel over FTPS
+    needs: verify
+    if: ${{ vars.CPANEL_DEPLOY_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    environment: cpanel-production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require restricted FTPS account configuration
+        env:
+          FTP_HOST: ${{ secrets.CPANEL_FTP_HOST }}
+          FTP_USER: ${{ secrets.CPANEL_FTP_USERNAME }}
+          FTP_PASS: ${{ secrets.CPANEL_FTP_PASSWORD }}
+          FTP_DIR: ${{ secrets.CPANEL_FTP_REMOTE_DIR }}
+        shell: bash
+        run: |
+          test -n "$FTP_HOST" || { echo "Missing CPANEL_FTP_HOST"; exit 1; }
+          test -n "$FTP_USER" || { echo "Missing CPANEL_FTP_USERNAME"; exit 1; }
+          test -n "$FTP_PASS" || { echo "Missing CPANEL_FTP_PASSWORD"; exit 1; }
+          test -n "$FTP_DIR" || { echo "Missing CPANEL_FTP_REMOTE_DIR"; exit 1; }
+          case "$FTP_DIR" in */) ;; *) echo "CPANEL_FTP_REMOTE_DIR must end with /"; exit 1 ;; esac
+      - name: Incremental FTPS upload (never clean the server)
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.CPANEL_FTP_HOST }}
+          username: ${{ secrets.CPANEL_FTP_USERNAME }}
+          password: ${{ secrets.CPANEL_FTP_PASSWORD }}
+          protocol: ftps
+          port: 21
+          security: strict
+          local-dir: ./site/
+          server-dir: ${{ secrets.CPANEL_FTP_REMOTE_DIR }}
+          state-name: .pinflix-cpanel-ftps-state.json
+          dangerous-clean-slate: false
+          log-level: standard
