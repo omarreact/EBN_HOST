@@ -52,7 +52,7 @@ jobs:
           grep -Fq 'css/cinematic-polish.css' site/index.html
           grep -Fq 'js/cinematic-polish.js' site/index.html
   deploy:
-    name: Upload approved site files to cPanel over FTPS
+    name: Upload UI files only to cPanel over FTPS
     needs: verify
     if: ${{ needs.verify.outputs.ready == 'true' && vars.CPANEL_DEPLOY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
@@ -72,16 +72,26 @@ jobs:
           test -n "$FTP_PASS" || { echo "Missing CPANEL_FTP_PASSWORD"; exit 1; }
           test -n "$FTP_DIR" || { echo "Missing CPANEL_FTP_REMOTE_DIR"; exit 1; }
           case "$FTP_DIR" in */) ;; *) echo "CPANEL_FTP_REMOTE_DIR must end with /"; exit 1 ;; esac
+      - name: Stage cosmetic files only (no PHP, APIs, player or CDN)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p cpanel-ui/css cpanel-ui/js
+          cp site/index.html cpanel-ui/index.html
+          cp site/css/cinematic-polish.css cpanel-ui/css/cinematic-polish.css
+          cp site/js/cinematic-polish.js cpanel-ui/js/cinematic-polish.js
       - name: Incremental FTPS upload (never clean the server)
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.CPANEL_FTP_HOST }}
+          # The TLS certificate of ftp.akogs-fashion.com is issued only
+          # for the verified canonical hostname below.
+          server: bdix10.ebnserver.com
           username: ${{ secrets.CPANEL_FTP_USERNAME }}
           password: ${{ secrets.CPANEL_FTP_PASSWORD }}
           protocol: ftps
           port: 21
           security: strict
-          local-dir: ./site/
+          local-dir: ./cpanel-ui/
           server-dir: ${{ secrets.CPANEL_FTP_REMOTE_DIR }}
           state-name: .pinflix-cpanel-ftps-state.json
           dangerous-clean-slate: false

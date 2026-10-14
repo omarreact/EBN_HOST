@@ -19,10 +19,7 @@ EXPECTED.update({
     "index.html": "99c11b002dba7425c27a16f8a6f00839ee85bc9a645b4eabfe24a8e0572d3567",
     "css/cinematic-polish.css": "bc5522ddd5fee9cabfa3f80d85be74eac68dfcd415514359584b57d12561b91b",
     "js/cinematic-polish.js": "65302c5de3a9f54080b50771f56c531c356ac9cf59fa2c46f59860173157da5a",
-    "DESIGN-ONLY-README.txt": "1e059d133e5a0000000000000000000000000000000000000000000000000000",
 })
-# DESIGN-ONLY-README.txt is purely documentation; its presence is optional.
-EXPECTED.pop("DESIGN-ONLY-README.txt")
 
 host = os.getenv("CPANEL_FTP_HOST", "").strip()
 # The hosting server presented a verified Let\'s Encrypt certificate for this
@@ -41,7 +38,12 @@ if directory in ("/", ""):
 ftp = ftplib.FTP_TLS(context=ssl.create_default_context(), timeout=30)
 try:
     ftp.connect(host, 21, timeout=30)
-    ftp.login(user, password)
+    try:
+        ftp.login(user, password)
+    except ftplib.error_perm as error:
+        if str(error).startswith("530"):
+            sys.exit("FTP login rejected (530). Confirm the existing FTP username and reset the password in cPanel, then update the matching GitHub secret. No site files changed.")
+        raise
     ftp.prot_p()
     ftp.set_pasv(True)
     ftp.cwd(directory)
