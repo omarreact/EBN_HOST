@@ -35,11 +35,14 @@ export function Browse({
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
   const first = useRef(true);
+  const [languageOptions, setLanguageOptions] = useState(() => initial.items.flatMap((t) => t.language ? [t.language] : []));
+  const requestVersion = useRef(0);
   useEffect(() => {
     if (first.current) {
       first.current = false;
       return;
     }
+    const version = ++requestVersion.current;
     const controller = new AbortController();
     const timer = setTimeout(() => {
       setBusy(true);
@@ -62,7 +65,11 @@ export function Browse({
           if (!r.ok) throw new Error();
           return r.json();
         })
-        .then(setData)
+        .then((next: Catalogue) => {
+          if (controller.signal.aborted || version !== requestVersion.current) return;
+          setLanguageOptions((current) => [...new Set([...current, ...next.items.flatMap((t) => t.language ? [t.language] : [])])]);
+          setData(next);
+        })
         .catch((e) => {
           if (e.name !== "AbortError")
             setError("We could not load this collection. Please try again.");
@@ -77,7 +84,9 @@ export function Browse({
     };
   }, [q, category, year, language, quality, sort, type, refresh, searchBy]);
   async function more() {
+    const version = requestVersion.current;
     setBusy(true);
+    setError("");
     const p = new URLSearchParams({ page: String(data.page + 1) });
     Object.entries({
       q: searchBy === "title" ? q : "",
@@ -95,6 +104,8 @@ export function Browse({
       const r = await fetch(api("/catalogue?" + p));
       if (!r.ok) throw new Error();
       const next: Catalogue = await r.json();
+      if (version !== requestVersion.current) return;
+      setLanguageOptions((current) => [...new Set([...current, ...next.items.flatMap((t) => t.language ? [t.language] : [])])]);
       setData({
         ...next,
         items: [
@@ -106,19 +117,15 @@ export function Browse({
         ],
       });
     } catch {
-      setError("More titles could not be loaded. Try again.");
+      if (version === requestVersion.current) setError("More titles could not be loaded. Try again.");
     } finally {
-      setBusy(false);
+      if (version === requestVersion.current) setBusy(false);
     }
   }
   const categories = data.categories.filter(
     (c) => (!type || c.kind === type) && !c.mature,
   );
-  const languages = [
-    ...new Set(
-      data.items.map((t) => t.language).filter((x): x is string => !!x),
-    ),
-  ].sort();
+  const languages = [...languageOptions, ...(language ? [language] : [])].filter((value, i, values) => values.indexOf(value) === i).sort();
   return (
     <div className="page-content browse-page">
       <div className="page-title">
@@ -288,6 +295,9 @@ export function Browse({
               setYear("");
               setLanguage("");
               setQuality("");
+              setSearchBy("title");
+              setSort("recent");
+              setType(kind || "");
             }}
           >
             Clear filters

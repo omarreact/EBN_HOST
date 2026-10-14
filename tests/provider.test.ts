@@ -159,3 +159,12 @@ test("test media mode resolves authorized sample video streams", async () => {
     else process.env.PINFLIX_TEST_MEDIA = previous;
   }
 });
+
+test("search filters exclude unrelated titles while combining year and quality", () => {
+ const titles = TitleSchema.array().parse(snapshot.items);
+ const title = titles.find(t => !t.mature && t.year && t.quality)!;
+ const unrelated = { ...title, id: 'movie-999999', title: 'Unrelated film', cast: [], category: 'Other', language: 'Other' };
+ const result = applyFilters([title, unrelated], {q: '  '+title.title+'  ', year: title.year!, quality: title.quality?.toLowerCase()});
+ assert.deepEqual(result.map(t=>t.id), [title.id]);
+});
+

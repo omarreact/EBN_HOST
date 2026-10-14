@@ -53,6 +53,7 @@ export function applyFilters(items: Title[], q: Query): Title[] {
   const out = items.filter(
     (t) =>
       permitted(t) &&
+      (!q.q?.trim() || matches(t, q.q.trim())) &&
       (!q.kind || t.kind === q.kind) &&
       (!q.category || t.category === q.category) &&
       (!q.year || t.year === q.year) &&
@@ -74,6 +75,7 @@ function matches(t: Title, q: string): boolean {
   );
 }
 export async function catalogue(q: Query = {}): Promise<Catalogue> {
+  q = { ...q, q: q.q?.trim() || undefined, actor: q.actor?.trim() || undefined };
   const page = Math.max(1, Math.min(q.page || 1, 10000));
   const meta = await cached("categories", 900_000, async () => {
     try {
@@ -154,7 +156,10 @@ export async function catalogue(q: Query = {}): Promise<Catalogue> {
     stale = true;
     items =
       page === 1
-        ? [...index.values()].filter((t) => !q.q || matches(t, q.q))
+        ? [...index.values()].filter((t) =>
+            (!q.q || matches(t, q.q)) &&
+            (!q.actor || t.cast.some((name) => name.toLowerCase().includes(q.actor!.toLowerCase()))),
+          )
         : [];
   }
   return {
@@ -357,7 +362,7 @@ export async function resolvePlayback(
       ? "/player.php?" + new URLSearchParams({ id: d.title.providerId })
       : "/watch.php?" +
         new URLSearchParams({
-          id: d.title.providerId,
+          series_id: d.title.providerId,
           season: String(season),
           ep: String(episode),
         });
@@ -369,60 +374,53 @@ export async function resolvePlayback(
     } | null = null;
 
     if (d.title.kind === "series") {
-      try {
-        const metaRaw = await boundedTextSafe(path + "&meta=1");
-        const meta = MetaSchema.parse(JSON.parse(metaRaw));
-        const epData = meta.episodes?.[String(episode)];
-        if (epData?.path) {
-          allowedUrl(epData.path, true);
-          const check = await safeFetch(
-            epData.path,
-            { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" } },
-            true,
-          ).catch(() => null);
-          if (check && check.ok) {
-            const playlist = await boundedText(check, 10_000).catch(() => "");
-            if (playlist.startsWith("#EXTM3U")) {
-              source = {
-                url: `${BASE}/api/stream/?id=${id}&season=${season}&episode=${episode}&url=${encodeURIComponent(epData.path)}`,
-                format: "hls",
-                subtitles: [],
-              };
-            }
-          }
+      // 1. Fetch watch.php directly to capture session cookies and extract real HLS master playlist
+      const watchRes = await safeFetch(ORIGIN + path, {
+        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" },
+      }).catch(() => null);
+
+      if (watchRes && watchRes.ok) {
+        const setCookies = watchRes.headers.getSetCookie
+          ? watchRes.headers.getSetCookie()
+          : [watchRes.headers.get("set-cookie")];
+        const cookieStr = (setCookies || [])
+          .filter((c): c is string => typeof c === "string")
+          .map((c) => c.split(";")[0])
+          .join("; ");
+        if (cookieStr) {
+          cookieCache.set(`${id}:${season}:${episode}`, {
+            cookies: cookieStr,
+            expires: Date.now() + 10 * 60 * 1000,
+          });
         }
-      } catch {
-        /* Fall back to watch page */
+        const htmlText = await boundedText(watchRes);
+        const parsed = sourceFromHtml(htmlText);
+        if (parsed) {
+          allowedUrl(parsed.url, true);
+          source = {
+            url: `${BASE}/api/stream/?id=${id}&season=${season}&episode=${episode}&url=${encodeURIComponent(parsed.url)}`,
+            format: "hls",
+            subtitles: parsed.subtitles || [],
+          };
+        }
       }
 
+      // 2. Fallback to meta=1 endpoint if HTML source tag was not extracted
       if (!source) {
-        const watchRes = await safeFetch(ORIGIN + path, {
-          headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" },
-        }).catch(() => null);
-        if (watchRes && watchRes.ok) {
-          const setCookies = watchRes.headers.getSetCookie
-            ? watchRes.headers.getSetCookie()
-            : [watchRes.headers.get("set-cookie")];
-          const cookieStr = (setCookies || [])
-            .filter((c): c is string => typeof c === "string")
-            .map((c) => c.split(";")[0])
-            .join("; ");
-          if (cookieStr) {
-            cookieCache.set(`${id}:${season}:${episode}`, {
-              cookies: cookieStr,
-              expires: Date.now() + 10 * 60 * 1000,
-            });
-          }
-          const htmlText = await boundedText(watchRes);
-          const parsed = sourceFromHtml(htmlText);
-          if (parsed) {
-            allowedUrl(parsed.url, true);
+        try {
+          const metaRaw = await boundedTextSafe(path + "&meta=1");
+          const meta = MetaSchema.parse(JSON.parse(metaRaw));
+          const epData = meta.episodes?.[String(episode)];
+          if (epData?.path) {
+            allowedUrl(epData.path, true);
             source = {
-              url: `${BASE}/api/stream/?id=${id}&season=${season}&episode=${episode}&url=${encodeURIComponent(parsed.url)}`,
+              url: `${BASE}/api/stream/?id=${id}&season=${season}&episode=${episode}&url=${encodeURIComponent(epData.path)}`,
               format: "hls",
-              subtitles: parsed.subtitles || [],
+              subtitles: [],
             };
           }
+        } catch {
+          /* Meta fallback failed */
         }
       }
     } else {
@@ -534,7 +532,7 @@ export async function getCineplexCookies(
   const cached = cookieCache.get(key);
   if (cached && cached.expires > Date.now()) return cached.cookies;
   const pid = id ? id.replace(/^(series|movie)-/, "") : "10527";
-  const p = `/watch.php?id=${pid}&season=${season}&ep=${episode}`;
+  const p = `/watch.php?series_id=${pid}&season=${season}&ep=${episode}`;
   try {
     const res = await safeFetch(ORIGIN + p, {
       headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" },

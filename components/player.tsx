@@ -412,18 +412,32 @@ export function Player({
       onKeyDown={(e) => {
         const tag = (e.target as HTMLElement).tagName;
         if (["INPUT", "SELECT", "BUTTON"].includes(tag)) return;
-        if (e.code === "Space") {
+        if (e.code === "Space" || e.key.toLowerCase() === "k") {
           e.preventDefault();
           void toggle();
         }
         if (e.key.toLowerCase() === "f") void fullscreen();
-        if (e.key === "ArrowLeft") {
+        if (e.key === "ArrowLeft" || e.key.toLowerCase() === "j") {
           e.preventDefault();
           seek(-10);
         }
-        if (e.key === "ArrowRight") {
+        if (e.key === "ArrowRight" || e.key.toLowerCase() === "l") {
           e.preventDefault();
           seek(10);
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          if (video.current) {
+            video.current.volume = Math.min(1, video.current.volume + 0.1);
+            setVolume(video.current.volume);
+          }
+        }
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          if (video.current) {
+            video.current.volume = Math.max(0, video.current.volume - 0.1);
+            setVolume(video.current.volume);
+          }
         }
         if (e.key.toLowerCase() === "m" && video.current) {
           video.current.muted = !video.current.muted;

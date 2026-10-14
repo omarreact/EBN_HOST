@@ -172,13 +172,33 @@ export async function GET(
           if (cookies) reqHeaders["Cookie"] = cookies;
           const upstream = await safeFetch(mediaTarget, { headers: reqHeaders }, true);
           const playlistText = await upstream.text();
+          const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "localhost:3005";
+          const proto = req.headers.get("x-forwarded-proto") || "http";
+          const streamBase = `${proto}://${host}${BASE}/api/stream/?id=${id}&season=${season}&episode=${episode}&url=`;
+          const rewritten = playlistText
+            .split("\n")
+            .map((line) => {
+              const trimmed = line.trim();
+              if (!trimmed) return line;
+              if (trimmed.startsWith("#EXT-X-KEY")) {
+                return trimmed.replace(/URI="([^"]+)"/, (_, uri) => {
+                  const abs = new URL(uri, mediaTarget).href;
+                  return `URI="${streamBase}${encodeURIComponent(abs)}"`;
+                });
+              }
+              if (trimmed.startsWith("#")) return line;
+              const abs = new URL(trimmed, mediaTarget).href;
+              return `${streamBase}${encodeURIComponent(abs)}`;
+            })
+            .join("\n");
           const headers = new Headers();
           headers.set(
             "Content-Disposition",
             `attachment; filename="${safeFilename}"; filename*=UTF-8''${safeFilename}`,
           );
           headers.set("Content-Type", "application/vnd.apple.mpegurl");
-          return new NextResponse(playlistText, { status: 200, headers });
+          headers.set("Access-Control-Allow-Origin", "*");
+          return new NextResponse(rewritten, { status: 200, headers });
         } catch {
           return NextResponse.redirect(pb.url);
         }
@@ -214,12 +234,24 @@ export async function GET(
             if (!trimmed) return line;
             if (trimmed.startsWith("#EXT-X-KEY")) {
               return trimmed.replace(/URI="([^"]+)"/, (_, uri) => {
-                const abs = new URL(uri, targetUrl).href;
+                let abs = uri;
+                try {
+                  abs = new URL(uri, targetUrl).href;
+                } catch {
+                  const safe = uri.split("/").map((s: string) => encodeURIComponent(decodeURIComponent(s))).join("/");
+                  abs = new URL(safe, targetUrl).href;
+                }
                 return `URI="${BASE}/api/stream/?id=${id || ""}&season=${season || 1}&episode=${episode || 1}&url=${encodeURIComponent(abs)}"`;
               });
             }
             if (trimmed.startsWith("#")) return line;
-            const abs = new URL(trimmed, targetUrl).href;
+            let abs = trimmed;
+            try {
+              abs = new URL(trimmed, targetUrl).href;
+            } catch {
+              const safe = trimmed.split("/").map((s: string) => encodeURIComponent(decodeURIComponent(s))).join("/");
+              abs = new URL(safe, targetUrl).href;
+            }
             return `${BASE}/api/stream/?id=${id || ""}&season=${season || 1}&episode=${episode || 1}&url=${encodeURIComponent(abs)}`;
           })
           .join("\n");

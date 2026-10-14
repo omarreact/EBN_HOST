@@ -58,6 +58,24 @@ export function saveProgress(entry: Progress) {
     ].slice(0, 200),
   );
 }
+export function removeSaved(titleId: string) {
+  const all = saved();
+  write("list", all.filter((t) => t.id !== titleId));
+}
+export function removeProgress(titleId: string, season?: number, episode?: number) {
+  const all = history();
+  write(
+    "history",
+    all.filter(
+      (e) =>
+        !(
+          e.title.id === titleId &&
+          (season === undefined || e.season === season) &&
+          (episode === undefined || e.episode === episode)
+        ),
+    ),
+  );
+}
 export function resume(title: Title, season?: number, episode?: number) {
   return history().find(
     (e) =>

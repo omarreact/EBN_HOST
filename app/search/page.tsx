@@ -9,6 +9,7 @@ export default async function Search({
   const p = await searchParams;
   return (
     <Browse
+      key={JSON.stringify(p)}
       initialQuery={p.q || ""}
       initialYear={p.year || ""}
       initial={await catalogue({

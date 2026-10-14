@@ -19,7 +19,9 @@ export function allowedUrl(value: string, media = false): URL {
       (u.port === "8086" || u.port === "8081")) ||
     (media &&
       (host === "commondatastorage.googleapis.com" ||
-        host === "test-streams.mux.dev"));
+        host === "test-streams.mux.dev" ||
+        host.endsWith(".cloudflarestream.com") ||
+        host === "cloudflarestream.com"));
   if (
     !allowed ||
     u.username ||

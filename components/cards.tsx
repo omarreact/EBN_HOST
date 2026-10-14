@@ -12,7 +12,10 @@ export function Card({
   subtitle?: string;
 }) {
   return (
-    <Link className="card" href={"/title/" + t.id}>
+    <Link
+      className="card"
+      href={t.kind === "series" ? "/series/" + t.id : "/movies/" + t.id}
+    >
       <div className="card-art">
         <Artwork src={t.poster} alt={t.title} />
         <span className="card-format">
