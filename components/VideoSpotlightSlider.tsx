@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Title } from "@/lib/model";
 import { saved, toggleSave } from "@/lib/storage";
 import { artworkUrl } from "./artwork";
+import { usePosterColor } from "./poster-ambient";
 
 /** Connects a spotlight slide to a real PinFlix movie and My List entry. */
 export type SpotlightItem = {
@@ -89,6 +90,8 @@ export function VideoSpotlightSlider({
   const active = items[activeIndex % Math.max(items.length, 1)];
   const videoUrl = active?.trailerUrl || null;
   const poster = artworkUrl(active?.posterUrl ?? active?.movie.backdrop ?? active?.movie.poster ?? null);
+  const spotlightSource = active?.posterUrl ?? active?.movie.backdrop ?? active?.movie.poster ?? null;
+  const spotlightRgb = usePosterColor(spotlightSource);
   const movieId = active?.movie.id;
   const canShowVideo = !!videoUrl && !videoFailed && !reducedMotion;
 
@@ -220,6 +223,15 @@ export function VideoSpotlightSlider({
             onError={() => setVideoFailed(true)}
           />
         )}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 transition-[background-color] duration-[600ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+          style={{
+            backgroundColor: `rgba(${spotlightRgb}, 0.28)`,
+            maskImage: "linear-gradient(to bottom, black 0%, transparent 78%)",
+            WebkitMaskImage: "linear-gradient(to bottom, black 0%, transparent 78%)",
+          }}
+        />
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/50 via-transparent to-black"

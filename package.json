@@ -14,7 +14,10 @@
     "test": "node --import tsx --test tests/*.test.ts",
     "test:integration": "tsx scripts/integration.ts",
     "verify:root": "node scripts/verify-root.cjs",
-    "verify:vercel": "node scripts/verify-vercel.cjs"
+    "verify:vercel": "node scripts/verify-vercel.cjs",
+    "colors:generate": "tsx scripts/precompute-poster-colors.ts",
+    "prebuild": "npm run colors:generate",
+    "predev": "npm run colors:generate"
   },
   "dependencies": {
     "next": "16.4.0",
@@ -23,7 +26,8 @@
     "cheerio": "1.2.0",
     "zod": "4.6.6",
     "hls.js": "1.7.3",
-    "lucide-react": "^0.577.0"
+    "lucide-react": "^0.577.0",
+    "sharp": "0.35.5"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
