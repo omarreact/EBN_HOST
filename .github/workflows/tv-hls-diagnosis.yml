@@ -1,0 +1,95 @@
+name: PinFlix TV Playback — Read-only HLS Diagnosis
+
+on:
+  push:
+    branches: [cpanel-release]
+    paths:
+      - ".github/workflows/tv-hls-diagnosis.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Test TV episode playback through playlist and first media request
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,time,urllib.request,urllib.parse,urllib.error,re
+          origin="http://pinflix.akogs-fashion.com/"
+          ids=[("Earth Abides S1E1","series-31416",1,1),
+               ("Wonderful World S1E1","series-31418",1,1),
+               ("Earth Abides S1E2","series-31416",1,2),
+               ("Movie comparison","movie-78597",1,1)]
+          def call(url,lim=65536,secs=16,method="GET",range=None):
+              head={"User-Agent":"PinFlix-HLS-Health/1.0","Accept":"*/*"}
+              if range: head["Range"]=range
+              req=urllib.request.Request(url,method=method,headers=head)
+              try:
+                  with urllib.request.urlopen(req,timeout=secs) as r:
+                      result={"http":r.status,"type":r.headers.get("content-type",""),
+                              "length":r.headers.get("content-length",""),
+                              "range":r.headers.get("content-range","")}
+                      b=r.read(lim)
+                      result["bytes_read"]=len(b)
+                      return result,b
+              except urllib.error.HTTPError as e:
+                  return {"http":e.code,"error":"HTTP "+str(e.code)},b""
+              except Exception as e:
+                  return {"error":str(e)[:165]},b""
+          def safe_type(t):
+              if t.startswith(b"#EXTM3U"):return "hls_manifest"
+              if t.lstrip().startswith(b"<"):return "html_not_media"
+              if t.lstrip().startswith(b"{"):return "json_not_media"
+              return "other_binary_or_text"
+          def origin_category(url):
+              p=urllib.parse.urlsplit(url)
+              if p.netloc in ("pinflix.akogs-fashion.com",""):return "same_origin"
+              if p.netloc in ("test-streams.mux.dev","commondatastorage.googleapis.com"):return "demo_fallback"
+              return "external_provider"
+          for label,id,season,ep in ids:
+              qs=urllib.parse.urlencode({"action":"playback","id":id,"season":season,"episode":ep})
+              detail,payload=call(urllib.parse.urljoin(origin,"api.php?"+qs))
+              print("\n=== "+label+" ===",flush=True)
+              print("playback_api:",detail,flush=True)
+              try:
+                  parsed=json.loads(payload)
+              except Exception:
+                  print("metadata: not_valid_json")
+                  continue
+              stream=parsed.get("url","")
+              print("metadata:",{"status":parsed.get("status"),"format":parsed.get("format"),"media_origin":origin_category(stream)},flush=True)
+              if not stream or parsed.get("status")!="ready":continue
+              if origin_category(stream)!="same_origin":
+                  print("stream_fetch: not attempted (outside user's PHP gateway)",flush=True)
+                  continue
+              url=urllib.parse.urljoin(origin,stream)
+              response,blob=call(url,lim=52428,secs=25,range="bytes=0-511" if parsed.get("format")=="mp4" else None)
+              response["body_kind"]=safe_type(blob)
+              if response["body_kind"]=="other_binary_or_text":
+                  response["starts_with_extm3u"]=blob[:7]==b"#EXTM3U"
+              print("proxy_response:",response,flush=True)
+              if parsed.get("format")!="hls" or not blob.startswith(b"#EXTM3U"):continue
+              body=blob.decode("utf-8","replace")
+              lines=[s.strip() for s in body.splitlines() if s.strip() and not s.startswith("#")]
+              keys=sum("#EXT-X-KEY" in s for s in body.splitlines())
+              children=sum(".m3u8" in s for s in lines)
+              print("hls_structure:",{"uri_lines":len(lines),"nested_manifests":children,"key_tags":keys,
+                    "has_endlist":"#EXT-X-ENDLIST" in body,"has_extinf":"#EXTINF" in body,"has_stream_inf":"#EXT-X-STREAM-INF" in body},flush=True)
+              for u in lines[:2]:
+                  child=urllib.parse.urljoin(url,u)
+                  if origin_category(child)!="same_origin":
+                      print("child_request: skipped unexpected external URL")
+                      continue
+                  r,b=call(child,lim=1024,secs=22,range="bytes=0-1023" if ".m3u8" not in u else None)
+                  r["body_kind"]=safe_type(b)
+                  if b.startswith(b"#EXTM3U"):
+                      nested=[x.strip() for x in b.decode("utf-8","replace").splitlines() if x.strip() and not x.startswith("#")]
+                      r["nested_uri_count"]=len(nested)
+                  print("first_child:",r,flush=True)
+                  break
+          PY
