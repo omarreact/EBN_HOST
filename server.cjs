@@ -3,7 +3,6 @@ const http = require("node:http");
 const { loadEnvConfig } = require("@next/env");
 loadEnvConfig(__dirname);
 const next = require("next");
-const prefix = "/ebn-host-live";
 const app = next({ dev: false, dir: __dirname });
 const startedAt = new Date().toISOString();
 app
@@ -12,7 +11,7 @@ app
     const handle = app.getRequestHandler();
     const server = http.createServer((req, res) => {
       const pathname = (req.url || "/").split("?")[0];
-      if (pathname === "/_ebn/health" || pathname === prefix + "/_ebn/health") {
+      if (pathname === "/_ebn/health") {
         res.writeHead(200, {
           "Content-Type": "application/json",
           "Cache-Control": "no-store",
@@ -28,8 +27,6 @@ app
         );
         return;
       }
-      if (pathname !== prefix && !pathname.startsWith(prefix + "/"))
-        req.url = prefix + (req.url || "/");
       handle(req, res).catch(() => {
         if (!res.headersSent) res.writeHead(500);
         res.end("Temporarily unavailable");

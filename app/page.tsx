@@ -1,21 +1,73 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
-import { catalogue, detail } from "@/lib/provider";
+import snapshot from "@/data/catalogue.json";
+import { api, TitleSchema, type Catalogue, type Title } from "@/lib/model";
 import { Hero } from "@/components/hero";
 import { Row } from "@/components/cards";
 import { PromoVideoSection } from "@/components/promo-video-section";
 import { MarvelVsDc } from "@/components/marvel-vs-dc";
 import { TimelessClassics } from "@/components/timeless-classics";
 import { HiddenGems } from "@/components/hidden-gems";
-import type { Title } from "@/lib/model";
 
-export const dynamic = "force-dynamic";
+// Render the bundled catalogue immediately. An unreachable HTTP origin should
+// never hold up the initial HTTPS page render on Vercel.
+const fallback: Catalogue = {
+  items: TitleSchema.array().parse(snapshot.items).filter((title) => !title.mature),
+  categories: snapshot.categories.map((category) => ({
+    name: category.name,
+    kind: category.kind === "series" ? "series" : "movie",
+    mature: category.mature,
+  })),
+  years: snapshot.years,
+  hasNext: false,
+  page: 1,
+  stale: true,
+  retrievedAt: snapshot.retrievedAt,
+};
+const fallbackSeries: Catalogue = {
+  ...fallback,
+  items: fallback.items.filter((item) => item.kind === "series"),
+};
+const detailSnapshot = new Map(
+  snapshot.details.map((entry) => [entry.title.id, TitleSchema.parse(entry.title)]),
+);
 
-export default async function Home() {
-  const [c, s] = await Promise.all([
-    catalogue().catch(() => null),
-    catalogue({ kind: "series" }).catch(() => null),
-  ]);
+export default function Home() {
+  const [c, setCatalogue] = useState<Catalogue>(fallback);
+  const [s, setSeriesCatalogue] = useState<Catalogue>(fallbackSeries);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8_000);
+    async function refresh(path: string, update: (data: Catalogue) => void) {
+      try {
+        const response = await fetch(api(path), {
+          signal: controller.signal,
+          cache: "no-store",
+        });
+        if (!response.ok) return;
+        const data: Catalogue = await response.json();
+        if (
+          !controller.signal.aborted &&
+          Array.isArray(data.items) &&
+          Array.isArray(data.categories)
+        ) {
+          update(data);
+        }
+      } catch {
+        // Keep the visible fallback catalogue if the provider is unavailable.
+      }
+    }
+    void refresh("/catalogue", setCatalogue);
+    void refresh("/catalogue?kind=series", setSeriesCatalogue);
+    return () => {
+      clearTimeout(timeout);
+      controller.abort();
+    };
+  }, []);
 
   const movies = c?.items.filter((t) => t.kind === "movie") || [];
   const seriesMap = new Map<string, Title>();
@@ -39,13 +91,7 @@ export default async function Home() {
     if (series[i]) featuredCandidates.push(series[i]);
   }
   const topFeatured = featuredCandidates.slice(0, 6);
-  const featured = await Promise.all(
-    topFeatured.map((t) =>
-      detail(t.id)
-        .then((d) => d.title)
-        .catch(() => t),
-    ),
-  );
+  const featured = topFeatured.map((title) => detailSnapshot.get(title.id) ?? title);
 
   const categories = c?.categories || [];
 
@@ -62,7 +108,6 @@ export default async function Home() {
     dcKeywords.some((kw) => t.title.toLowerCase().includes(kw)),
   );
 
-  // If real-time catalogue has limited matching titles, provide representative hero items
   if (marvelTitles.length < 4) {
     marvelTitles = [
       ...marvelTitles,
