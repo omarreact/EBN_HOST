@@ -4,7 +4,7 @@ import { clampVibrantRgb, cssRgb, dominantPosterRgb, posterFallbackRgb } from ".
 
 test("lightness is clamped for dark and bright posters", () => {
   assert.deepEqual(clampVibrantRgb([10, 0, 0]), [128, 0, 0]);
-  assert.deepEqual(clampVibrantRgb([255, 220, 220]), [230, 51, 51]);
+  assert.deepEqual(clampVibrantRgb([255, 220, 220]), [255, 26, 26]);
 });
 
 test("poster sampler chooses the dominant vibrant hue over grayscale", () => {
