@@ -1,0 +1,52 @@
+name: PinFlix cPanel — secure FTPS connection test
+
+on:
+  push:
+    branches: [cpanel-release]
+    paths:
+      - ".github/workflows/cpanel-ftps-connectivity.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Test FTPS login and document root (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Validate encrypted FTPS login without uploading anything
+        shell: bash
+        env:
+          CPANEL_FTP_USERNAME: ${{ secrets.CPANEL_FTP_USERNAME }}
+          CPANEL_FTP_PASSWORD: ${{ secrets.CPANEL_FTP_PASSWORD }}
+          CPANEL_FTP_REMOTE_DIR: ${{ secrets.CPANEL_FTP_REMOTE_DIR }}
+        run: |
+          python3 - <<'PY'
+          import ftplib, os, ssl, sys
+          user = os.getenv("CPANEL_FTP_USERNAME", "")
+          password = os.getenv("CPANEL_FTP_PASSWORD", "")
+          directory = os.getenv("CPANEL_FTP_REMOTE_DIR", "")
+          if not (user and password and directory):
+              sys.exit("Missing FTP username, password, or directory secret.")
+          ftp = ftplib.FTP_TLS(context=ssl.create_default_context(), timeout=20)
+          try:
+              ftp.connect("bdix10.ebnserver.com", 21)
+              try:
+                  ftp.login(user, password)
+              except ftplib.error_perm as e:
+                  if str(e).startswith("530"):
+                      sys.exit("FTP authentication rejected (530): verify the exact subdomain FTP account and GitHub password secret.")
+                  raise
+              ftp.prot_p()
+              ftp.set_pasv(True)
+              ftp.cwd(directory)
+              filenames = {name.rsplit("/", 1)[-1] for name in ftp.nlst()}
+              if "index.html" not in filenames:
+                  sys.exit("FTP login worked, but this directory does not contain index.html. Check CPANEL_FTP_REMOTE_DIR.")
+              print("PASS: secure FTPS login, document root and existing index.html confirmed.")
+          finally:
+              try: ftp.quit()
+              except Exception: ftp.close()
+          PY
