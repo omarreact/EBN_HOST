@@ -261,7 +261,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </button>
         </div>
       </header>
-      <main id="content">{children}</main>
+      <main id="content"><div className="ambient-backdrop" aria-hidden="true" />{children}</main>
       <footer className="footer">
         <div className="footer-main">
           <div className="footer-brand">

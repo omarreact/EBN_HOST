@@ -14,14 +14,7 @@ import type { Title } from "@/lib/model";
 import { saved, toggleSave } from "@/lib/storage";
 import { titleHref } from "@/lib/curation";
 import { Artwork } from "./artwork";
-export function useAccent(src: string | null) {
-  let hash = 0;
-  for (const ch of src || "pinflix")
-    hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-  return ["159, 98, 226", "222, 111, 96", "96, 147, 210", "183, 153, 101"][
-    hash % 4
-  ];
-}
+import { usePosterAmbient } from "./poster-ambient";
 export function SaveButton({
   title,
   compact = false,
@@ -60,7 +53,7 @@ export function Hero({ titles }: { titles: Title[] }) {
   const [reduced, setReduced] = useState(true);
   const index = selected % Math.max(1, titles.length);
   const title = titles[index];
-  const accent = useAccent(title?.poster || null);
+  const accent = usePosterAmbient(title?.poster || title?.backdrop || null);
   useEffect(() => {
     const media = matchMedia("(prefers-reduced-motion: reduce)");
     const sync = () =>

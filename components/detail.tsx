@@ -14,7 +14,8 @@ import {
 import { api, type Detail, type Playback } from "@/lib/model";
 import { history, type Progress } from "@/lib/storage";
 import { Artwork } from "./artwork";
-import { SaveButton, useAccent } from "./hero";
+import { SaveButton } from "./hero";
+import { usePosterAmbient } from "./poster-ambient";
 import { Row } from "./cards";
 import { PlaybackSlot, usePlayback } from "./playback-context";
 export function DetailView({
@@ -40,7 +41,7 @@ export function DetailView({
   const abort = useRef<AbortController | null>(null);
   const { session, open, minimized, close } = usePlayback();
   const t = data.title;
-  const accent = useAccent(t.poster);
+  const accent = usePosterAmbient(t.poster || t.backdrop);
   const latest = progress.find(
     (p) =>
       p.season === season &&
