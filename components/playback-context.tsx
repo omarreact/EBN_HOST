@@ -59,10 +59,6 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
   } | null>(null);
   const pathname = usePathname();
   const router = useRouter();
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    setMounted(true);
-  }, []);
   const routeMatches =
     !!session &&
     pathname.replace(/\/$/, "") === titleHref(session.title).replace(/\/$/, "");
@@ -137,7 +133,7 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
   const expand = () => {
     setMini(false);
     setPosition(null);
-    if (session && !routeMatches && mounted)
+    if (session && !routeMatches)
       router.push(titleHref(session.title));
     else
       anchor.current?.scrollIntoView({ behavior: "smooth", block: "center" });

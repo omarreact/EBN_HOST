@@ -257,7 +257,6 @@ export function VideoSpotlightSlider({
         >
           {showLogo ? (
             // Logos come from the content catalogue rather than a fixed Next image loader.
-            // eslint-disable-next-line @next/next/no-img-element
             <img
               src={active.titleLogoUrl || undefined}
               alt={active.movie.title}
