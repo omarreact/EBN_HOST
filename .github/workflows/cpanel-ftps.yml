@@ -1,4 +1,4 @@
-name: PinFlix cPanel — verify and deploy (FTPS)
+name: PinFlix cPanel — UI-only verification and FTPS deployment
 
 on:
   push:
