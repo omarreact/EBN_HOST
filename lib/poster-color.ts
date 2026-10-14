@@ -27,7 +27,7 @@ export function clampVibrantRgb(rgb: Rgb): Rgb {
     [0, x, chroma], [x, 0, chroma], [chroma, 0, x],
   ];
   const value = sectors[Math.min(5, Math.floor(h / 60))];
-  return value.map((c) => Math.round((c + m) * 255)) as unknown as Rgb;
+  return value.map((c) => Math.max(0, Math.round((c + m) * 255))) as unknown as Rgb;
 }
 
 export function dominantPosterRgb(pixels: Uint8ClampedArray): Rgb | null {
