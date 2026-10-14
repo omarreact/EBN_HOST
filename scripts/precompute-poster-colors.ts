@@ -9,6 +9,7 @@ import path from "node:path";
 import sharp from "sharp";
 import { cssRgb, dominantPosterRgb } from "../lib/poster-color";
 
+async function main() {
 const root = process.cwd();
 const artworkAliases = JSON.parse(
   await readFile(path.join(root, "data", "artwork.json"), "utf8"),
@@ -45,3 +46,9 @@ console.info(
   "poster colors; skipped",
   skipped,
 );
+
+}
+void main().catch((error: unknown) => {
+  console.error("[PinFlix ambient] generation failed", error);
+  process.exitCode = 1;
+});
