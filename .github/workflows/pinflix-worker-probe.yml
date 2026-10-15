@@ -23,5 +23,7 @@ jobs:
                   print(json.dumps(data,indent=2))
           except Exception as e:
               print("ERROR:",repr(e))
+              print("HEADERS:",dict(getattr(e,"headers",{})))
+              print("BODY:",getattr(e,"read",lambda n:b"")(600).decode("utf8","replace"))
               raise
           PY
