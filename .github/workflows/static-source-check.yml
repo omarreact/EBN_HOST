@@ -1,0 +1,32 @@
+name: PinFlix static origin availability audit
+on:
+  push:
+    branches: [cpanel-release]
+    paths: ['.github/workflows/static-source-check.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Check public media services (read only)
+        run: |
+          python3 - <<'PY'
+          from urllib import request, error
+          from urllib.parse import urlsplit
+          import socket
+          targets=['http://cineplexbd.net/index.php','http://cineplexbd.net/search_ajax.php?q=earth&limit=2','http://cds3.cineplexbd.net/','http://cds3.cineplexbd.net/player.php?id=77533','http://vod.cineplexbd.net:8081/']
+          for url in targets:
+            h=urlsplit(url)
+            try:
+              ips=socket.getaddrinfo(h.hostname,h.port or 80,proto=socket.IPPROTO_TCP)
+              print('DNS',h.hostname,sorted(set(i[4][0] for i in ips))[:4],flush=True)
+            except Exception as e: print('DNS_FAIL',h.hostname,type(e).__name__,flush=True)
+            try:
+              with request.urlopen(request.Request(url,headers={'Origin':'http://pinflix.akogs-fashion.com','User-Agent':'Mozilla/5.0 (compatible; public-health/1.0)'}),timeout=8) as r:
+                data=r.read(100)
+                print('URL',url,'STATUS',r.status,'TYPE',r.headers.get('Content-Type'),'ACAO',r.headers.get('Access-Control-Allow-Origin') or '<none>','BYTES',len(data),flush=True)
+            except Exception as e: print('URL',url,'FAIL',type(e).__name__,str(e)[:140],flush=True)
+          PY
