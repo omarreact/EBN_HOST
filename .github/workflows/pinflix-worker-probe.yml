@@ -1,0 +1,27 @@
+name: PinFlix standalone — Cloudflare source connectivity
+on:
+  push:
+    branches: [cpanel-release]
+    paths: [.github/workflows/pinflix-worker-probe.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check new Worker and provider connectivity
+        run: |
+          python3 - <<'PY'
+          import json,urllib.request
+          url="https://pinflix-standalone.farukkhanone.workers.dev/api/status"
+          try:
+              with urllib.request.urlopen(url,timeout=30) as r:
+                  data=json.load(r)
+                  print("HTTP:",r.status)
+                  print(json.dumps(data,indent=2))
+          except Exception as e:
+              print("ERROR:",repr(e))
+              raise
+          PY
